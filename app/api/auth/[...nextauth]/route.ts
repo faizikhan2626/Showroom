@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { SessionStrategy } from "next-auth";
 import { connectToDatabase } from "../../../lib/db";
 import User from "../../../lib/models/User";
 import bcrypt from "bcryptjs";

@@ -1,5 +1,5 @@
 // app/api/vehicles/custom/route.ts
-/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]/route";
@@ -173,10 +173,6 @@ export async function POST(req: NextRequest) {
             { chassisNumber: body.chassisNumber },
           ],
         });
-        console.log("Rollback performed for:", {
-          engineNumber: body.engineNumber,
-          chassisNumber: body.chassisNumber,
-        });
       }
     }
 
@@ -197,7 +193,6 @@ export async function GET(req: NextRequest) {
     await connectToDatabase();
 
     const session = await getServerSession(authOptions);
-    console.log("Full session data in GET:", JSON.stringify(session, null, 2));
 
     if (!session) {
       console.error("Unauthorized GET request", { url: req.url });
@@ -206,8 +201,6 @@ export async function GET(req: NextRequest) {
         { status: 401 }
       );
     }
-
-    console.log("Session showroomId:", session.user.showroomId);
 
     const type = req.nextUrl.searchParams.get("type");
     const status = req.nextUrl.searchParams.get("status");
@@ -239,8 +232,6 @@ export async function GET(req: NextRequest) {
         }
       );
       showroomId = user._id.toString();
-    } else {
-      console.log("Valid showroomId used:", showroomId);
     }
 
     const baseQuery: any = {};
