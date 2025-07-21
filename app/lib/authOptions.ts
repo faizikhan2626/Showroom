@@ -2,7 +2,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { connectToDatabase } from "./db";
 import User from "./models/User";
 import bcrypt from "bcryptjs";
-import { AuthOptions } from "next-auth";
+import { AuthOptions, SessionStrategy } from "next-auth";
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -29,6 +29,8 @@ export const authOptions: AuthOptions = {
           name: user.username,
           email: `${user.username}@example.com`,
           role: user.role,
+          showroomName: user.showroomName,
+          showroomId: user._id.toString(),
         };
       },
     }),
@@ -38,7 +40,7 @@ export const authOptions: AuthOptions = {
     error: "/auth/error",
   },
   session: {
-    strategy: "jwt",
+    strategy: "jwt" as SessionStrategy, // ✅ fix type error
     maxAge: 60 * 60 * 12,
   },
   callbacks: {
@@ -46,6 +48,8 @@ export const authOptions: AuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.showroomName = user.showroomName;
+        token.showroomId = user.showroomId;
       }
       return token;
     },
@@ -53,6 +57,8 @@ export const authOptions: AuthOptions = {
       if (session.user) {
         session.user.id = token.id;
         session.user.role = token.role;
+        session.user.showroomName = token.showroomName;
+        session.user.showroomId = token.showroomId;
       }
       return session;
     },
