@@ -1,4 +1,3 @@
-// lib/validations/vehicle.ts
 import mongoose from "mongoose";
 import { VehicleModels } from "../models/VehicleModels";
 import User from "../models/User";
@@ -22,8 +21,8 @@ export const validateVehicleInput = async (data: any) => {
     errors.push("Valid showroom ID is required");
   } else {
     const user = await User.findById(data.showroomId);
-    if (!user || user.role !== "showroom") {
-      errors.push("Showroom ID must reference a valid showroom user");
+    if (!user || !["showroom", "admin"].includes(user.role)) {
+      errors.push("Showroom ID must reference a valid showroom or admin user");
     }
   }
 

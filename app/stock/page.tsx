@@ -1,4 +1,3 @@
-// app/components/StockPage.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -31,25 +30,20 @@ type Vehicle = {
   partner: string;
   partnerCNIC: string;
   showroom: string;
+  showroomId: string;
   dateAdded: string;
 };
 
-const vehicleTypes = [
-  "All",
-  "Car",
-  "Bike",
-  "Rickshaw",
-  "Loader",
-  "Electric Bike",
-];
+const vehicleTypes = ["Car", "Bike", "Rickshaw", "Loader", "Electric Bike"];
 
 export default function StockPage() {
+  const { data: session, status } = useSession();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [type, setType] = useState<"All" | Vehicle["type"]>("All");
-  const [filterBrand, setFilterBrand] = useState("");
-  const [filterModel, setFilterModel] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const itemsPerPage = 6;
 
   const [form, setForm] = useState({
@@ -64,32 +58,87 @@ export default function StockPage() {
     chassisNumber: "",
   });
 
-  const { data: session } = useSession();
-
   const fetchVehicles = async () => {
+    if (status === "loading" || !session?.user) return;
+    setLoading(true);
+    setError(null);
+    setWarnings([]);
     try {
-      const res = await fetch("/api/vehicles/custom");
+      const query = new URLSearchParams({
+        showroomId: session.user.showroomId || "",
+      });
+      console.log(
+        "Fetching vehicles with query:",
+        `/api/vehicles/custom?${query.toString()}`
+      );
+      const res = await fetch(`/api/vehicles/custom?${query.toString()}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      console.log(
+        "Response status:",
+        res.status,
+        "Status text:",
+        res.statusText
+      );
+
+      // Check for non-OK status codes
       if (!res.ok) {
-        const errorData = await res.json();
-        console.error("Fetch error details:", errorData);
-        throw new Error(errorData.error || "Failed to fetch vehicles");
+        let errorMessage = `HTTP error ${res.status}: ${res.statusText}`;
+        try {
+          const text = await res.text();
+          console.log("Response body:", text);
+          if (text) {
+            const errorData = JSON.parse(text);
+            errorMessage = errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          console.error("Failed to parse error response:", parseError);
+        }
+        throw new Error(errorMessage);
       }
+
       const data = await res.json();
-      setVehicles(data);
-    } catch (error) {
-      console.error("Error fetching vehicles:", error);
+      console.log("Fetched vehicles:", data);
+      if (!Array.isArray(data) || data.length === 0) {
+        setWarnings([
+          "No stock records found. Verify showroom ID or add new stock.",
+        ]);
+        setVehicles([]);
+      } else {
+        setVehicles(data);
+        setWarnings([]);
+      }
+    } catch (error: any) {
+      console.error("Error fetching vehicles:", error.message, error.stack);
+      setError(`Failed to load stock data: ${error.message}`);
+      setWarnings([
+        "Failed to load stock data. Please try again or contact support.",
+      ]);
       setVehicles([]);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchVehicles();
-  }, []);
+  }, [session, status]);
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+    if (!dateString) return "N/A";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return "Invalid Date";
+    }
   };
+
   const getIcon = (type: Vehicle["type"]) => {
     switch (type) {
       case "Car":
@@ -107,37 +156,10 @@ export default function StockPage() {
     }
   };
 
-  const filteredVehicles = vehicles.filter((vehicle) => {
-    const typeMatch = type === "All" || vehicle.type === type;
-    const brandMatch = !filterBrand || vehicle.brand === filterBrand;
-    const modelMatch = !filterModel || vehicle.model === filterModel;
-    return typeMatch && brandMatch && modelMatch;
-  });
-
-  const paginatedVehicles = filteredVehicles.slice(
+  const paginatedVehicles = vehicles.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
-
-  const availableBrands = Array.from(
-    new Set(
-      vehicles
-        .filter((v) => type === "All" || v.type === type)
-        .map((v) => v.brand)
-    )
-  ).sort();
-
-  const availableModels = Array.from(
-    new Set(
-      vehicles
-        .filter((v) => {
-          const typeMatch = type === "All" || v.type === type;
-          const brandMatch = !filterBrand || v.brand === filterBrand;
-          return typeMatch && brandMatch;
-        })
-        .map((v) => v.model)
-    )
-  ).sort();
 
   const exportCSV = () => {
     const header = [
@@ -153,11 +175,11 @@ export default function StockPage() {
       "Showroom",
       "Date Added",
     ];
-    const rows = filteredVehicles.map((v) => [
+    const rows = vehicles.map((v) => [
       v.type,
       v.brand,
       v.model,
-      v.price,
+      v.price.toLocaleString(),
       v.color,
       v.engineNumber,
       v.chassisNumber,
@@ -168,7 +190,7 @@ export default function StockPage() {
     ]);
     const csvContent = [header, ...rows].map((e) => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `stock-${type === "All" ? "all" : type}.csv`);
+    saveAs(blob, `stock-all.csv`);
   };
 
   const exportPDF = () => {
@@ -192,7 +214,7 @@ export default function StockPage() {
           "Date Added",
         ],
       ],
-      body: filteredVehicles.map((v) => [
+      body: vehicles.map((v) => [
         v.type,
         v.brand,
         v.model,
@@ -206,10 +228,9 @@ export default function StockPage() {
         formatDate(v.dateAdded),
       ]),
     });
-    doc.save(`stock-${type === "All" ? "all" : type}.pdf`);
+    doc.save(`stock-all.pdf`);
   };
 
-  // app/components/StockPage.tsx (partial update for handleSubmit)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -224,6 +245,7 @@ export default function StockPage() {
     }
 
     const requiredFields = [
+      "type",
       "brand",
       "model",
       "price",
@@ -235,10 +257,25 @@ export default function StockPage() {
     ];
 
     const missing = requiredFields.some(
-      (field) => !form[field as keyof typeof form]
+      (field) =>
+        !form[field as keyof typeof form] ||
+        form[field as keyof typeof form] === ""
     );
     if (missing) {
       alert("Please fill in all required fields.");
+      return;
+    }
+
+    // Validate price is a positive number
+    if (form.price <= 0) {
+      alert("Price must be a positive number.");
+      return;
+    }
+
+    // Validate partnerCNIC format (e.g., 16202-1234567-1)
+    const cnicRegex = /^\d{5}-\d{7}-\d{1}$/;
+    if (!cnicRegex.test(form.partnerCNIC)) {
+      alert("Invalid CNIC format. Use XXXXX-XXXXXXX-X.");
       return;
     }
 
@@ -281,8 +318,8 @@ export default function StockPage() {
         chassisNumber: "",
       });
       fetchVehicles();
-    } catch (error) {
-      console.error("Error submitting vehicle:", error);
+    } catch (error: any) {
+      console.error("Error submitting vehicle:", error.message, error.stack);
       alert("Something went wrong. Please try again.");
     }
   };
@@ -297,7 +334,9 @@ export default function StockPage() {
     });
   };
 
-  // Rest of the component remains unchanged
+  if (status === "loading") return <div className="p-6">Loading...</div>;
+  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-26">
       <div className="flex justify-between items-center mb-6">
@@ -327,7 +366,7 @@ export default function StockPage() {
           {
             name: "type",
             type: "select",
-            options: vehicleTypes.filter((t) => t !== "All"),
+            options: vehicleTypes,
           },
           { name: "brand", placeholder: "e.g. Honda" },
           { name: "model", placeholder: "e.g. CG-125" },
@@ -390,268 +429,6 @@ export default function StockPage() {
           </button>
         </div>
       </form>
-
-      {/* FILTERS */}
-      <div className="mb-4 flex flex-wrap gap-4">
-        <div>
-          <label className="font-semibold text-blue-700 mr-2">Type:</label>
-          <select
-            value={type}
-            onChange={(e) => {
-              setType(e.target.value as Vehicle["type"]);
-              setFilterBrand("");
-              setFilterModel("");
-              setCurrentPage(1);
-            }}
-            className="border rounded px-4 py-2"
-          >
-            {vehicleTypes.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="font-semibold text-blue-700 mr-2">Brand:</label>
-          <select
-            value={filterBrand}
-            onChange={(e) => {
-              setFilterBrand(e.target.value);
-              setFilterModel("");
-              setCurrentPage(1);
-            }}
-            className="border rounded px-4 py-2"
-          >
-            <option value="">All Brands</option>
-            {availableBrands.map((brand) => (
-              <option key={brand} value={brand}>
-                {brand}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="font-semibold text-blue-700 mr-2">Model:</label>
-          <select
-            value={filterModel}
-            onChange={(e) => {
-              setFilterModel(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="border rounded px-4 py-2"
-          >
-            <option value="">All Models</option>
-            {availableModels.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* TOTALS */}
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-blue-600">
-          Showing {filteredVehicles.length}{" "}
-          {type === "All" ? "vehicles" : type.toLowerCase() + "s"}
-        </h2>
-        {filterBrand && (
-          <div className="mt-2 text-sm text-gray-700">
-            <strong>Brand:</strong> {filterBrand}
-          </div>
-        )}
-        {filterModel && (
-          <div className="mt-1 text-sm text-gray-700">
-            <strong>Model:</strong> {filterModel}
-          </div>
-        )}
-      </div>
-
-      {/* VEHICLE LIST */}
-      {filteredVehicles.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <p className="text-gray-500 text-lg">
-            No {type === "All" ? "vehicles" : type.toLowerCase() + "s"} found
-            matching your filters.
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {paginatedVehicles.map((vehicle) => (
-              <motion.div
-                key={vehicle._id || vehicle.chassisNumber}
-                className="bg-white rounded-lg shadow-lg p-5 border-l-4 border-blue-600 hover:shadow-xl cursor-pointer"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                onClick={() => {
-                  if (vehicle._id) {
-                    setSelectedVehicle(vehicle);
-                  }
-                }}
-              >
-                <div className="flex justify-between items-center">
-                  <div className="text-3xl">{getIcon(vehicle.type)}</div>
-                  <span className="text-sm px-3 py-1 rounded-full bg-blue-100 text-blue-600 font-medium">
-                    {vehicle.type}
-                  </span>
-                </div>
-
-                <div className="mt-2">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {vehicle.brand} {vehicle.model}
-                  </h3>
-                  <div className="text-blue-700 font-semibold text-lg">
-                    PKR {vehicle.price.toLocaleString()}
-                  </div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    Color: {vehicle.color}
-                  </div>
-                </div>
-
-                <div className="mt-auto pt-2 border-t text-sm text-gray-500">
-                  Added: {formatDate(vehicle.dateAdded)}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* PAGINATION */}
-          {filteredVehicles.length > itemsPerPage && (
-            <div className="mt-6 flex justify-center gap-2">
-              {Array.from(
-                { length: Math.ceil(filteredVehicles.length / itemsPerPage) },
-                (_, i) => (
-                  <button
-                    key={i + 1}
-                    onClick={() => setCurrentPage(i + 1)}
-                    className={`px-3 py-1 rounded border ${
-                      currentPage === i + 1
-                        ? "bg-blue-600 text-white"
-                        : "bg-white text-blue-600 border-blue-600"
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                )
-              )}
-            </div>
-          )}
-        </>
-      )}
-      {/* Vehicle Detail Modal */}
-      {selectedVehicle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
-            onClick={() => setSelectedVehicle(null)}
-          ></div>
-
-          <motion.div
-            className="relative bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto z-10"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-          >
-            <button
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-              onClick={() => setSelectedVehicle(null)}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-
-            <div className="p-6">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="text-4xl">{getIcon(selectedVehicle.type)}</div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    {selectedVehicle.brand} {selectedVehicle.model}
-                  </h2>
-                  <div className="text-blue-700 font-semibold text-xl">
-                    PKR {selectedVehicle.price.toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-3">
-                    Vehicle Details
-                  </h3>
-                  <div className="space-y-2">
-                    <p>
-                      <span className="font-medium">Type:</span>{" "}
-                      {selectedVehicle.type}
-                    </p>
-                    <p>
-                      <span className="font-medium">Color:</span>{" "}
-                      {selectedVehicle.color}
-                    </p>
-                    <p>
-                      <span className="font-medium">Status:</span>{" "}
-                      {selectedVehicle.status}
-                    </p>
-                    <p>
-                      <span className="font-medium">Added:</span>{" "}
-                      {formatDate(selectedVehicle.dateAdded)}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-3">
-                    Identification
-                  </h3>
-                  <div className="space-y-2">
-                    <p>
-                      <span className="font-medium">Engine No:</span>{" "}
-                      {selectedVehicle.engineNumber}
-                    </p>
-                    <p>
-                      <span className="font-medium">Chassis No:</span>{" "}
-                      {selectedVehicle.chassisNumber}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-700 mb-3">
-                    Provider Information
-                  </h3>
-                  <div className="space-y-2">
-                    <p>
-                      <span className="font-medium">Name:</span>{" "}
-                      {selectedVehicle.partner}
-                    </p>
-                    <p>
-                      <span className="font-medium">CNIC:</span>{" "}
-                      {selectedVehicle.partnerCNIC}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }

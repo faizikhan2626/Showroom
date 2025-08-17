@@ -1,7 +1,7 @@
 // app/api/vehicles/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/route";
+import { authOptions } from "../../lib/authOptions";
 import { connectToDatabase } from "../../lib/db";
 import { VehicleModels } from "../../lib/models/VehicleModels";
 import Transaction from "../../lib/models/Transaction";

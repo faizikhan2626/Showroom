@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { Menu } from "lucide-react";
+import Image from "next/image";
 
 const baseLinks = [
   { name: "Dashboard", href: "/dashboard" },
@@ -49,7 +50,12 @@ export default function Navbar() {
           href="/"
           className="text-2xl font-extrabold text-blue-700 tracking-wider hover:scale-105 transition-transform duration-300"
         >
-          {showroomName}
+          <Image
+            src={`/images/logo.jpeg`}
+            alt="Showroom Logo"
+            width={120}
+            height={120}
+          />
         </Link>
 
         {/* Desktop Nav */}

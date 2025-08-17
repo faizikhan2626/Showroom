@@ -1,302 +1,250 @@
-// app/api/vehicles/custom/route.ts
-
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "../../../lib/authOptions";
 import { connectToDatabase } from "../../../lib/db";
-import { VehicleModels } from "../../../lib/models/VehicleModels";
-import Transaction from "../../../lib/models/Transaction";
-import { validateVehicleInput } from "../../../lib/validations/vehicle";
-import User from "../../../lib/models/User";
+import Bike from "../../../lib/models/Bike";
+import Car from "../../../lib/models/Car";
+import Rickshaw from "../../../lib/models/Rickshaw";
+import Loader from "../../../lib/models/Loader";
+import ElectricBike from "../../../lib/models/ElectricBike";
 import mongoose from "mongoose";
 
-export async function POST(req: NextRequest) {
-  let body: any = null; // Define body for catch block
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    console.error("Unauthorized access attempt:", req.url);
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const showroomId = searchParams.get("showroomId");
+
+  if (!showroomId || !mongoose.Types.ObjectId.isValid(showroomId)) {
+    console.error("Invalid or missing showroomId:", { showroomId });
+    return new Response(JSON.stringify({ error: "Invalid showroom ID" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (session.user.role !== "admin" && session.user.showroomId !== showroomId) {
+    console.error("Forbidden: showroomId mismatch", {
+      sessionShowroomId: session.user.showroomId,
+      requestedShowroomId: showroomId,
+    });
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  await connectToDatabase();
+
   try {
-    await connectToDatabase();
+    const vehicleModels = [
+      { model: Bike, type: "Bike" },
+      { model: Car, type: "Car" },
+      { model: Rickshaw, type: "Rickshaw" },
+      { model: Loader, type: "Loader" },
+      { model: ElectricBike, type: "Electric Bike" },
+    ];
 
-    // Verify user session
-    const session = await getServerSession(authOptions);
-    console.log("Full session data in POST:", JSON.stringify(session, null, 2));
+    const vehiclePromises = vehicleModels.map(async ({ model, type }) => {
+      const vehicles = await model
+        .find({
+          showroomId: new mongoose.Types.ObjectId(showroomId),
+          status: "Stock In",
+        })
+        .select(
+          "type brand model price color status engineNumber chassisNumber partners partnerCNIC showroomId dateAdded"
+        )
+        .populate("showroomId", "showroomName")
+        .lean();
+      return vehicles.map((vehicle) => ({
+        _id: vehicle._id.toString(),
+        type: vehicle.type || type,
+        brand: vehicle.brand || "Unknown",
+        model: vehicle.model || "Unknown",
+        price: Number(vehicle.price) || 0,
+        color: vehicle.color || "Unknown",
+        status: vehicle.status || "Stock In",
+        engineNumber: vehicle.engineNumber || "N/A",
+        chassisNumber: vehicle.chassisNumber || "N/A",
+        partner: vehicle.partners?.[0] || "No Partner Assigned",
+        partnerCNIC: vehicle.partnerCNIC || "N/A",
+        showroom: vehicle.showroomId?.showroomName || "Unknown",
+        showroomId: vehicle.showroomId?._id?.toString() || showroomId,
+        dateAdded: vehicle.dateAdded
+          ? new Date(vehicle.dateAdded).toISOString()
+          : new Date().toISOString(),
+      }));
+    });
 
-    if (!session || !session.user?.name) {
-      console.error("Unauthorized: Missing session or username", {
-        sessionUser: session?.user,
-      });
-      return NextResponse.json(
-        { error: "Unauthorized", details: "Missing session or username" },
-        { status: 401 }
-      );
-    }
+    const [
+      bikeVehicles,
+      carVehicles,
+      rickshawVehicles,
+      loaderVehicles,
+      electricBikeVehicles,
+    ] = await Promise.all(vehiclePromises);
 
-    // Fetch user to get showroomName and _id
-    const user = await User.findOne({ username: session.user.name }).select(
-      "showroomName _id cnic"
+    const vehicles = [
+      ...bikeVehicles,
+      ...carVehicles,
+      ...rickshawVehicles,
+      ...loaderVehicles,
+      ...electricBikeVehicles,
+    ];
+
+    console.log("Fetched vehicles:", vehicles);
+    return new Response(JSON.stringify(vehicles), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error: any) {
+    console.error("Vehicles fetch error:", error.message, error.stack);
+    return new Response(
+      JSON.stringify({
+        error: "Internal server error",
+        details: error.message,
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
-    if (!user || !user._id) {
-      console.error("User not found", {
-        username: session.user.name,
-      });
-      return NextResponse.json(
-        {
-          error: "User not found",
-          details: `Username: ${session.user.name}`,
-        },
-        { status: 400 }
-      );
-    }
+  }
+}
 
-    body = await req.json();
-    console.log("Incoming vehicle data:", body);
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    console.error("Unauthorized POST attempt:", req.url);
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
-    // Validate input
-    const validation = await validateVehicleInput(body);
-    if (!validation.valid) {
-      console.error("Validation failed:", validation.errors);
-      return NextResponse.json(
-        { error: "Validation failed", details: validation.errors },
-        { status: 400 }
-      );
-    }
+  await connectToDatabase();
 
+  try {
+    const data = await req.json();
     const {
       type,
       brand,
       model,
       price,
+      color,
       engineNumber,
       chassisNumber,
-      color,
       partner,
       partnerCNIC,
+      status,
       showroomId,
-    } = body;
+    } = data;
 
-    const VehicleModel = VehicleModels[type];
-    if (!VehicleModel) {
-      console.error("Invalid vehicle type:", type);
-      return NextResponse.json(
-        { error: "Invalid vehicle type", details: `Type: ${type}` },
-        { status: 400 }
-      );
-    }
-
-    // Verify showroomId matches user._id or session.showroomId
-    let finalShowroomId = showroomId;
-    if (!mongoose.Types.ObjectId.isValid(finalShowroomId)) {
-      console.warn("Invalid showroomId in body, using user._id as fallback", {
-        bodyShowroomId: showroomId,
-        userId: user._id.toString(),
-      });
-      finalShowroomId = user._id.toString();
-    }
-
-    // Check for existing vehicle
-    const duplicate = await VehicleModel.findOne({
-      $or: [{ engineNumber }, { chassisNumber }],
-    });
-
-    if (duplicate) {
-      console.error("Duplicate vehicle found", { engineNumber, chassisNumber });
-      return NextResponse.json(
-        {
-          error: "Vehicle with these details already exists",
-          details: { engineNumber, chassisNumber },
-        },
-        { status: 409 }
-      );
-    }
-
-    // Create new vehicle
-    const newVehicle = new VehicleModel({
-      type,
-      brand,
-      model,
-      price,
-      engineNumber,
-      chassisNumber,
-      color,
-      partner,
-      partnerCNIC,
-      status: "Stock In",
-      showroom: user.showroomName || "Unknown Showroom",
-      showroomId: finalShowroomId,
-    });
-    await newVehicle.save();
-    console.log("Vehicle saved:", {
-      vehicleId: newVehicle._id,
-      showroomId: finalShowroomId,
-    });
-
-    // Option 1: Create transaction (uncomment if needed)
-    /*
-    const transaction = await Transaction.create({
-      type,
-      brand,
-      model,
-      price,
-      engineNumber,
-      chassisNumber,
-      customerName: "N/A",
-      customerCNIC: null, // Use null to bypass CNIC validation
-      status: "Stock In",
-      showroom: user.showroomName || "Unknown Showroom",
-      showroomId: finalShowroomId,
-      date: new Date(),
-      paymentType: "None",
-      amount: 0,
-      actionBy: session.user.id,
-      partner,
-      partnerCNIC,
-    });
-    console.log("Transaction created:", { transactionId: transaction._id });
-    */
-
-    return NextResponse.json(
-      { message: "Vehicle added successfully", id: newVehicle._id },
-      { status: 201 }
-    );
-  } catch (error: any) {
-    console.error("Vehicle creation error:", {
-      message: error.message,
-      stack: error.stack,
-      details: error.errors || error,
-    });
-
-    // Attempt rollback if vehicle was saved
-    if (body?.engineNumber && body?.chassisNumber && body?.type) {
-      const VehicleModel = VehicleModels[body.type];
-      if (VehicleModel) {
-        await VehicleModel.deleteMany({
-          $or: [
-            { engineNumber: body.engineNumber },
-            { chassisNumber: body.chassisNumber },
-          ],
-        });
-      }
-    }
-
-    return NextResponse.json(
-      {
-        error: error.name || "Internal server error",
-        message: error.message,
-        details: error.errors || undefined,
-      },
-      { status: error.statusCode || 500 }
-    );
-  }
-}
-
-// GET handler (unchanged from previous response)
-export async function GET(req: NextRequest) {
-  try {
-    await connectToDatabase();
-
-    const session = await getServerSession(authOptions);
-
-    if (!session) {
-      console.error("Unauthorized GET request", { url: req.url });
-      return NextResponse.json(
-        { error: "Unauthorized", details: "No active session" },
-        { status: 401 }
-      );
-    }
-
-    const type = req.nextUrl.searchParams.get("type");
-    const status = req.nextUrl.searchParams.get("status");
-    const limit = parseInt(req.nextUrl.searchParams.get("limit") || "100");
-
-    const user = await User.findOne({ username: session.user.name }).select(
-      "showroomName _id"
-    );
-    if (!user || !user._id) {
-      console.error("User not found", {
-        username: session.user.name,
-      });
-      return NextResponse.json(
-        {
-          error: "User not found",
-          details: `Username: ${session.user.name}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    let showroomId = session.user.showroomId;
     if (!showroomId || !mongoose.Types.ObjectId.isValid(showroomId)) {
-      console.warn(
-        "Invalid or missing showroomId, using user._id as fallback",
+      console.error("Invalid or missing showroomId:", { showroomId });
+      return new Response(JSON.stringify({ error: "Invalid showroom ID" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      session.user.role !== "admin" &&
+      session.user.showroomId !== showroomId
+    ) {
+      console.error("Forbidden: showroomId mismatch", {
+        sessionShowroomId: session.user.showroomId,
+        requestedShowroomId: showroomId,
+      });
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Fetch showroom name from User model (since showroomId references User)
+    const User = mongoose.model("User");
+    const user = await User.findById(showroomId).select("showroomName").lean();
+    if (!user || !user.showroomName) {
+      console.error(
+        "User/Showroom not found or missing showroomName:",
+        showroomId
+      );
+      return new Response(
+        JSON.stringify({ error: "Showroom not found or missing name" }),
         {
-          sessionShowroomId: session.user.showroomId,
-          userId: user._id.toString(),
+          status: 400,
+          headers: { "Content-Type": "application/json" },
         }
       );
-      showroomId = user._id.toString();
     }
 
-    const baseQuery: any = {};
-    if (status) baseQuery.status = status;
-    if (session.user.role !== "admin") {
-      baseQuery.showroomId = showroomId;
+    const vehicleData = {
+      type,
+      brand,
+      model,
+      price: Number(price),
+      color,
+      engineNumber,
+      chassisNumber,
+      partner, // Use partner as a string, not an array
+      partnerCNIC,
+      status: status || "Stock In",
+      showroom: user.showroomName, // Map showroom name from User
+      showroomId: new mongoose.Types.ObjectId(showroomId),
+      dateAdded: new Date(),
+    };
+
+    let vehicle;
+    switch (type) {
+      case "Bike":
+        vehicle = new Bike(vehicleData);
+        break;
+      case "Car":
+        vehicle = new Car(vehicleData);
+        break;
+      case "Rickshaw":
+        vehicle = new Rickshaw(vehicleData);
+        break;
+      case "Loader":
+        vehicle = new Loader(vehicleData);
+        break;
+      case "Electric Bike":
+        vehicle = new ElectricBike(vehicleData);
+        break;
+      default:
+        return new Response(JSON.stringify({ error: "Invalid vehicle type" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
     }
 
-    if (!type) {
-      const allVehicles = await Promise.all(
-        Object.entries(VehicleModels).map(async ([modelType, Model]) => {
-          const vehicles = await Model.find(baseQuery)
-            .populate("showroomId", "showroomName")
-            .limit(limit)
-            .sort({ createdAt: -1 })
-            .lean();
-          return vehicles.map((v) => ({
-            ...v,
-            type: modelType,
-            showroom:
-              v.showroomId?.showroomName || v.showroom || "Unknown Showroom",
-            showroomId: v.showroomId?._id?.toString() || v.showroomId,
-          }));
-        })
-      );
-      return NextResponse.json(allVehicles.flat());
-    }
-
-    const VehicleModel = VehicleModels[type];
-    if (!VehicleModel) {
-      console.error("Invalid vehicle type in GET:", type);
-      return NextResponse.json(
-        { error: "Invalid vehicle type", details: `Type: ${type}` },
-        { status: 400 }
-      );
-    }
-
-    const vehicles = await VehicleModel.find(baseQuery)
-      .populate("showroomId", "showroomName")
-      .limit(limit)
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return NextResponse.json(
-      vehicles.map((v) => ({
-        ...v,
-        type,
-        showroom:
-          v.showroomId?.showroomName || v.showroom || "Unknown Showroom",
-        showroomId: v.showroomId?._id?.toString() || v.showroomId,
-      }))
+    await vehicle.save();
+    console.log("Vehicle added:", vehicle);
+    return new Response(
+      JSON.stringify({ message: "Vehicle added successfully", vehicle }),
+      {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   } catch (error: any) {
-    console.error("Vehicle fetch error:", {
-      message: error.message,
-      stack: error.stack,
-      details: error.errors || error,
-    });
-    return NextResponse.json(
+    console.error("Vehicle POST error:", error.message, error.stack);
+    return new Response(
+      JSON.stringify({
+        error: "Internal server error",
+        details: error.message,
+      }),
       {
-        error: "Failed to fetch vehicles",
-        details: error.message || "An unexpected error occurred",
-        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-      },
-      { status: 500 }
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }

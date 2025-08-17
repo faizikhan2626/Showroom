@@ -1,4 +1,3 @@
-// app/api/sales/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { connectToDatabase } from "../../lib/db";
@@ -7,18 +6,46 @@ import Sale from "../../lib/models/Sale";
 import { VehicleModels } from "../../lib/models/VehicleModels";
 import Transaction from "../../lib/models/Transaction";
 import User from "../../lib/models/User";
-import { authOptions } from "../auth/[...nextauth]/route";
+import { authOptions } from "../../lib/authOptions";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user?.showroomId) {
+      console.error("Unauthorized access attempt:", req.url);
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     await connectToDatabase();
 
-    // Fetch all sales with populated showroomId
-    const sales = await Sale.find({})
+    const { searchParams } = new URL(req.url);
+    const showroomId = searchParams.get("showroomId");
+
+    if (!showroomId || !mongoose.Types.ObjectId.isValid(showroomId)) {
+      console.error("Invalid or missing showroomId:", { showroomId });
+      return NextResponse.json(
+        { error: "Invalid showroom ID" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      session.user.role !== "admin" &&
+      session.user.showroomId !== showroomId
+    ) {
+      console.error("Forbidden: showroomId mismatch", {
+        sessionShowroomId: session.user.showroomId,
+        requestedShowroomId: showroomId,
+      });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const sales = await Sale.find({
+      showroomId: new mongoose.Types.ObjectId(showroomId),
+    })
       .populate("showroomId", "showroomName")
       .lean();
 
-    // Transform sales to include showroomName and stringified showroomId
     const transformedSales = sales.map((s) => ({
       ...s,
       showroom: s.showroomId?.showroomName || s.showroom || "Unknown",
@@ -50,13 +77,13 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.name) {
+    if (!session || !session.user?.name || !session.user?.showroomId) {
+      console.error("Unauthorized POST attempt:", req.url);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json();
     console.log("Incoming sale data:", body);
-    console.log("Received vehicleType:", body.vehicleType);
 
     const requiredFields = [
       "vehicleType",
@@ -64,6 +91,7 @@ export async function POST(req: NextRequest) {
       "paymentType",
       "customerName",
       "customerCNIC",
+      "showroomId",
     ];
 
     const missingFields = requiredFields.filter((field) => !body[field]);
@@ -78,15 +106,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch user to get showroomName, _id, and cnic
-    const user = await User.findOne({ username: session.user.name }).select(
-      "showroomName _id cnic"
-    );
-    if (!user || !user.showroomName || !user._id) {
+    if (!mongoose.Types.ObjectId.isValid(body.showroomId)) {
+      console.error("Invalid showroomId:", body.showroomId);
       return NextResponse.json(
-        { error: "User or showroom information not found" },
+        { error: "Invalid showroom ID" },
         { status: 400 }
       );
+    }
+
+    if (
+      session.user.role !== "admin" &&
+      session.user.showroomId !== body.showroomId
+    ) {
+      console.error("Forbidden: showroomId mismatch", {
+        sessionShowroomId: session.user.showroomId,
+        requestedShowroomId: body.showroomId,
+      });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const vehicleType = body.vehicleType.trim();
@@ -126,24 +162,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify showroom matches user's showroomName for non-admin users
-    if (
-      session.user.role !== "admin" &&
-      vehicle.showroom !== user.showroomName
-    ) {
+    if (vehicle.showroomId.toString() !== body.showroomId) {
       return NextResponse.json(
         {
           error: "Unauthorized",
-          message: `You can only sell vehicles from your showroom: ${user.showroomName}`,
+          message: `Vehicle does not belong to showroom ID: ${body.showroomId}`,
         },
         { status: 403 }
       );
     }
 
-    // Get partner and partnerCNIC from vehicle.partners (assuming first partner)
-    const partner = vehicle.partners?.[0]?.name || user.showroomName || "None";
-    const partnerCNIC =
-      vehicle.partners?.[0]?.cnic || user.cnic || "00000-0000000-0";
+    const user = await User.findOne({ username: session.user.name }).select(
+      "showroomName _id cnic"
+    );
+    if (!user || !user.showroomName || !user._id) {
+      return NextResponse.json(
+        { error: "User or showroom information not found" },
+        { status: 400 }
+      );
+    }
+
+    const partner = vehicle.partners?.[0] || user.showroomName || "None";
+    const partnerCNIC = vehicle.partnerCNIC || user.cnic || "00000-0000000-0";
     if (!partnerCNIC.match(/^\d{5}-\d{7}-\d{1}$/)) {
       return NextResponse.json(
         {
@@ -184,7 +224,8 @@ export async function POST(req: NextRequest) {
       engineNumber: vehicle.engineNumber,
       chassisNumber: vehicle.chassisNumber,
       showroom: user.showroomName,
-      showroomId: user._id,
+      showroomId: new mongoose.Types.ObjectId(body.showroomId),
+      saleDate: new Date(),
     });
 
     await sale.save();
@@ -197,8 +238,8 @@ export async function POST(req: NextRequest) {
       sale.showroomId
     );
 
-    // Delete the vehicle from the DB
-    await VehicleModel.findByIdAndDelete(vehicle._id);
+    // Update vehicle status to Stock Out
+    await VehicleModel.findByIdAndUpdate(vehicle._id, { status: "Stock Out" });
 
     // Record transaction
     await Transaction.create({
@@ -212,7 +253,7 @@ export async function POST(req: NextRequest) {
       customerCNIC: body.customerCNIC,
       status: "Stock Out",
       showroom: user.showroomName,
-      showroomId: user._id,
+      showroomId: new mongoose.Types.ObjectId(body.showroomId),
       date: new Date(),
       paymentType: body.paymentType,
       amount: paidAmount,
@@ -221,7 +262,6 @@ export async function POST(req: NextRequest) {
       partnerCNIC,
     });
 
-    // Populate showroomId for the response
     const populatedSale = await Sale.findById(sale._id)
       .populate("showroomId", "showroomName")
       .lean();
@@ -241,7 +281,7 @@ export async function POST(req: NextRequest) {
           vehicleName: `${vehicle.brand} ${vehicle.model}`,
           perMonth: monthlyInstallment,
         },
-        message: "Sale recorded and vehicle removed successfully",
+        message: "Sale recorded and vehicle status updated successfully",
       },
       { status: 201 }
     );

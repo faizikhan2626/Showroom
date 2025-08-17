@@ -1,9 +1,17 @@
+// app/admin/create-showroom-user/page.tsx
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { motion } from "framer-motion";
+
+interface User {
+  username: string;
+  role: "admin" | "showroom";
+  showroomName: string;
+  showroomId: string;
+}
 
 export default function CreateShowroomUserPage() {
   const { data: session } = useSession();
@@ -11,8 +19,31 @@ export default function CreateShowroomUserPage() {
   const [password, setPassword] = useState("");
   const [showroomName, setShowroomName] = useState("");
   const [role, setRole] = useState<"admin" | "showroom">("showroom");
+  const [users, setUsers] = useState<User[]>([]);
 
-  if (session?.user.role !== "admin") {
+  // Fetch non-admin users
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch("/api/admin/users");
+        if (!res.ok) throw new Error("Failed to fetch users");
+        const data = await res.json();
+        // Filter out admins
+        setUsers(data.filter((user: User) => user.role === "showroom"));
+      } catch (err) {
+        toast.error("Failed to load users", {
+          style: {
+            background: "#fee2e2",
+            color: "#b91c1c",
+            border: "1px solid #ef4444",
+          },
+        });
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  if (!session?.user || session.user.role !== "admin") {
     return (
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -70,6 +101,66 @@ export default function CreateShowroomUserPage() {
         setPassword("");
         setShowroomName("");
         setRole("showroom");
+        // Refresh user list
+        const resUsers = await fetch("/api/admin/users");
+        const newUsers = await resUsers.json();
+        setUsers(newUsers.filter((user: User) => user.role === "showroom"));
+      }
+    } catch (err) {
+      toast.error("Unexpected server error", {
+        id: toastId,
+        style: {
+          background: "#fee2e2",
+          color: "#b91c1c",
+          border: "1px solid #ef4444",
+        },
+      });
+    }
+  };
+
+  const handleDelete = async (showroomId: string, username: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete ${username} and their vehicles?`
+      )
+    )
+      return;
+    const toastId = toast.loading(`Deleting ${username}...`, {
+      style: {
+        background: "#f0f9ff",
+        color: "#1e40af",
+        border: "1px solid #3b82f6",
+      },
+    });
+
+    try {
+      const res = await fetch(
+        `/api/admin/delete-user?showroomId=${showroomId}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.message || "Failed to delete user", {
+          id: toastId,
+          style: {
+            background: "#fee2e2",
+            color: "#b91c1c",
+            border: "1px solid #ef4444",
+          },
+        });
+      } else {
+        toast.success("User and vehicles deleted successfully!", {
+          id: toastId,
+          style: {
+            background: "#dcfce7",
+            color: "#15803d",
+            border: "1px solid #22c55e",
+          },
+        });
+        setUsers(users.filter((user) => user.showroomId !== showroomId));
       }
     } catch (err) {
       toast.error("Unexpected server error", {
@@ -92,7 +183,7 @@ export default function CreateShowroomUserPage() {
     >
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-4 rounded-t-xl">
         <h2 className="text-2xl font-bold tracking-tight">
-          Add Showroom Account
+          Manage Showroom Accounts
         </h2>
       </div>
       <form onSubmit={handleSubmit} className="space-y-5 p-6">
@@ -168,6 +259,40 @@ export default function CreateShowroomUserPage() {
           Create Account
         </motion.button>
       </form>
+      <div className="p-6">
+        <h3 className="text-lg font-medium text-blue-700 mb-4">
+          Showroom Users
+        </h3>
+        {users.length === 0 ? (
+          <p className="text-gray-500">No showroom users found.</p>
+        ) : (
+          <ul className="space-y-3">
+            {users.map((user) => (
+              <motion.li
+                key={user.showroomId}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+              >
+                <div>
+                  <span className="font-medium">{user.username}</span> (
+                  {user.showroomName})
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                  onClick={() => handleDelete(user.showroomId, user.username)}
+                >
+                  Delete
+                </motion.button>
+              </motion.li>
+            ))}
+          </ul>
+        )}
+      </div>
     </motion.div>
   );
 }
