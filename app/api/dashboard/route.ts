@@ -30,10 +30,15 @@ export async function GET(req: Request) {
   const stockType = searchParams.get("stockType");
   const paymentType = searchParams.get("paymentType");
 
-  if (userId !== user.username) {
+  // For admin users, userId will be "admin", for showroom users it will be their showroomId
+  const expectedUserId = user.role === "admin" ? "admin" : user.showroomId;
+  
+  if (userId !== expectedUserId) {
     console.error("Forbidden: userId mismatch", {
       userId,
-      sessionUserId: user.username,
+      expectedUserId,
+      userRole: user.role,
+      userShowroomId: user.showroomId,
     });
     return new Response(JSON.stringify({ message: "Forbidden" }), {
       status: 403,
