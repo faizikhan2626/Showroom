@@ -62,7 +62,7 @@ export async function GET(req: Request) {
         )
         .populate("showroomId", "showroomName")
         .lean();
-      return vehicles.map((vehicle) => ({
+      return vehicles.map((vehicle: any) => ({
         _id: vehicle._id.toString(),
         type: vehicle.type || type,
         brand: vehicle.brand || "Unknown",
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
 
     // Fetch showroom name from User model (since showroomId references User)
     const User = mongoose.model("User");
-    const user = await User.findById(showroomId).select("showroomName").lean();
+    const user = await User.findById(showroomId).select("showroomName").lean() as any;
     if (!user || !user.showroomName) {
       console.error(
         "User/Showroom not found or missing showroomName:",

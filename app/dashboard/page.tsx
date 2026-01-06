@@ -36,7 +36,7 @@ import {
   FiShoppingCart
 } from "react-icons/fi";
 
-const autoTable = dynamic(() => import("jspdf-autotable").then(mod => ({ default: mod.default })), { ssr: false });
+import "jspdf-autotable";
 
 const COLORS = [
   "#3B82F6", // Blue
@@ -490,7 +490,7 @@ export default function DashboardPage() {
                     cy="50%"
                     outerRadius={100}
                     label={({ name, percent }) =>
-                      name && `${name} ${(percent * 100).toFixed(0)}%`
+                      name && percent !== undefined ? `${name} ${(percent * 100).toFixed(0)}%` : name
                     }
                   >
                     {Object.values(processedData?.salesByType || {}).map(
@@ -519,7 +519,7 @@ export default function DashboardPage() {
                     cy="50%"
                     outerRadius={100}
                     label={({ name, percent }) =>
-                      name && `${name} ${(percent * 100).toFixed(0)}%`
+                      name && percent !== undefined ? `${name} ${(percent * 100).toFixed(0)}%` : name
                     }
                   >
                     {Object.values(processedData?.paymentDistribution || {}).map(
@@ -549,7 +549,7 @@ export default function DashboardPage() {
                       cy="50%"
                       outerRadius={100}
                       label={({ name, percent }) =>
-                        name && `${name} ${(percent * 100).toFixed(0)}%`
+                        name && percent !== undefined ? `${name} ${(percent * 100).toFixed(0)}%` : name
                       }
                     >
                       {Object.values(processedData?.stockByType || {}).map(

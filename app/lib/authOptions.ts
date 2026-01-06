@@ -44,12 +44,13 @@ export const authOptions: AuthOptions = {
           if (!isValid) return null;
 
           const userData = {
-            id: user._id.toString(),
+            id: (user._id as any).toString(),
+            username: user.username,
             name: user.username,
             email: `${user.username}@example.com`,
             role: user.role,
-            showroomName: user.showroomName,
-            showroomId: user._id.toString(),
+            showroomName: user.showroomName || "",
+            showroomId: (user._id as any).toString(),
           };
           console.log("Returning user:", userData);
           return userData;
@@ -72,6 +73,7 @@ export const authOptions: AuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.username = user.username;
         token.role = user.role as "admin" | "showroom";
         token.showroomName = user.showroomName;
         token.showroomId = user.showroomId;
@@ -80,10 +82,11 @@ export const authOptions: AuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as "admin" | "showroom";
-        session.user.showroomName = token.showroomName as string;
-        session.user.showroomId = token.showroomId as string;
+        (session.user as any).id = token.id as string;
+        (session.user as any).username = token.username as string;
+        (session.user as any).role = token.role as "admin" | "showroom";
+        (session.user as any).showroomName = token.showroomName as string;
+        (session.user as any).showroomId = token.showroomId as string;
       }
       return session;
     },

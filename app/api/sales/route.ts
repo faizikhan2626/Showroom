@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     console.log(
       "Fetched sales:",
-      transformedSales.map((s) => ({
+      transformedSales.map((s: any) => ({
         _id: s._id,
         vehicleType: s.vehicleType || "Missing",
         showroom: s.showroom || "Missing",
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.name || !session.user?.showroomId) {
+    if (!session || !session.user?.username || !session.user?.showroomId) {
       console.error("Unauthorized POST attempt:", req.url);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     }
 
     const vehicleType = body.vehicleType.trim();
-    const VehicleModel = VehicleModels[vehicleType];
+    const VehicleModel = VehicleModels[vehicleType as keyof typeof VehicleModels];
     if (!VehicleModel) {
       console.error("VehicleModels keys:", Object.keys(VehicleModels));
       return NextResponse.json(
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const vehicle = await VehicleModel.findById(body.vehicleId);
+    const vehicle = await VehicleModel.findById(body.vehicleId) as any;
     if (!vehicle) {
       return NextResponse.json(
         {
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const user = await User.findOne({ username: session.user.name }).select(
+    const user = await User.findOne({ username: session.user.username }).select(
       "showroomName _id cnic"
     );
     if (!user || !user.showroomName || !user._id) {
@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
     }
 
     const partner = vehicle.partners?.[0] || user.showroomName || "None";
-    const partnerCNIC = vehicle.partnerCNIC || user.cnic || "00000-0000000-0";
+    const partnerCNIC = vehicle.partnerCNIC || "00000-0000000-0";
     if (!partnerCNIC.match(/^\d{5}-\d{7}-\d{1}$/)) {
       return NextResponse.json(
         {
@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
       vehicleId: vehicle._id,
       vehicleType: vehicleType,
       brand: vehicle.brand,
-      model: vehicle.model,
+      vehicleModel: vehicle.model,
       color: vehicle.color,
       price: vehicle.price,
       totalAmount,
@@ -257,14 +257,14 @@ export async function POST(req: NextRequest) {
       date: new Date(),
       paymentType: body.paymentType,
       amount: paidAmount,
-      actionBy: session.user.id,
+      actionBy: session.user.username,
       partner,
       partnerCNIC,
     });
 
     const populatedSale = await Sale.findById(sale._id)
       .populate("showroomId", "showroomName")
-      .lean();
+      .lean() as any;
 
     return NextResponse.json(
       {

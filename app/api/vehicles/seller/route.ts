@@ -22,17 +22,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const user = await User.findOne({ username: session.user.name }).select(
+    const user = await User.findOne({ username: session.user.username }).select(
       "showroomName _id role"
     );
     if (!user || !user._id) {
       console.error("User not found", {
-        username: session.user.name,
+        username: session.user.username,
       });
       return NextResponse.json(
         {
           error: "User not found",
-          details: `Username: ${session.user.name}`,
+          details: `Username: ${session.user.username}`,
         },
         { status: 400 }
       );
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
             .limit(limit)
             .sort({ createdAt: -1 })
             .lean();
-          return vehicles.map((v) => ({
+          return vehicles.map((v: any) => ({
             ...v,
             type: modelType,
             showroom:
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(allVehicles.flat());
     }
 
-    const VehicleModel = VehicleModels[type];
+    const VehicleModel = VehicleModels[type as keyof typeof VehicleModels];
     if (!VehicleModel) {
       console.error("Invalid vehicle type in GET:", type);
       return NextResponse.json(
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
       .lean();
 
     return NextResponse.json(
-      vehicles.map((v) => ({
+      vehicles.map((v: any) => ({
         ...v,
         type,
         showroom:

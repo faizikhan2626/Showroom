@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     // Verify user session
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.name || !session.user.showroomId) {
+    if (!session || !session.user?.username || !session.user.showroomId) {
       console.error("Unauthorized: Missing session or showroomId", {
         sessionUser: session?.user,
       });
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       partnerCNIC,
     } = body;
 
-    const VehicleModel = VehicleModels[type];
+    const VehicleModel = VehicleModels[type as keyof typeof VehicleModels];
     if (!VehicleModel) {
       console.error("Invalid vehicle type:", type);
       return NextResponse.json(
@@ -74,17 +74,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch user to get showroomName and _id
-    const user = await User.findOne({ username: session.user.name }).select(
-      "showroomName _id cnic"
+    const user = await User.findOne({ username: session.user.username }).select(
+      "showroomName _id"
     );
     if (!user || !user.showroomName || !user._id) {
       console.error("User or showroom not found", {
-        username: session.user.name,
+        username: session.user.username,
       });
       return NextResponse.json(
         {
           error: "User or showroom not found",
-          details: `Username: ${session.user.name}`,
+          details: `Username: ${session.user.username}`,
         },
         { status: 400 }
       );
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
       date: new Date(),
       paymentType: "None",
       amount: 0,
-      actionBy: session.user.id,
+      actionBy: session.user.username,
       partner,
       partnerCNIC,
     });
@@ -187,18 +187,6 @@ export async function POST(req: NextRequest) {
       stack: error.stack,
       details: error.errors || error,
     });
-    // Attempt rollback if vehicle was saved
-    if (body?.engineNumber && body?.chassisNumber && body?.type) {
-      const VehicleModel = VehicleModels[body.type];
-      if (VehicleModel) {
-        await VehicleModel.deleteMany({
-          $or: [
-            { engineNumber: body.engineNumber },
-            { chassisNumber: body.chassisNumber },
-          ],
-        });
-      }
-    }
 
     return NextResponse.json(
       {
@@ -255,7 +243,7 @@ export async function GET(req: NextRequest) {
             .limit(limit)
             .sort({ createdAt: -1 })
             .lean();
-          return vehicles.map((v) => ({
+          return vehicles.map((v: any) => ({
             ...v,
             type: modelType,
             showroom: v.showroomId?.showroomName || v.showroom,
@@ -266,7 +254,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(allVehicles.flat());
     }
 
-    const VehicleModel = VehicleModels[type];
+    const VehicleModel = VehicleModels[type as keyof typeof VehicleModels];
     if (!VehicleModel) {
       console.error("Invalid vehicle type in GET:", type);
       return NextResponse.json(
@@ -282,7 +270,7 @@ export async function GET(req: NextRequest) {
       .lean();
 
     return NextResponse.json(
-      vehicles.map((v) => ({
+      vehicles.map((v: any) => ({
         ...v,
         type,
         showroom: v.showroomId?.showroomName || v.showroom,

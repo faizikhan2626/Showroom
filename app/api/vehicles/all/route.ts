@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
         const vehicles = await Model.find(baseQuery)
           .populate("showroomId", "showroomName")
           .lean();
-        return vehicles.map((vehicle) => ({
+        return vehicles.map((vehicle: any) => ({
           ...vehicle,
           type,
           showroom: vehicle.showroomId?.showroomName || vehicle.showroom,

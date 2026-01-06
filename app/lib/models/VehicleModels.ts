@@ -1,5 +1,6 @@
 // lib/models/VehicleModels.ts
-import { IVehicleModel } from "../types/vehicle";
+import { IVehicleModel, IVehicleBase } from "../types/vehicle";
+import { Model } from "mongoose";
 import Bike from "./Bike";
 import Car from "./Car";
 import Rickshaw from "./Rickshaw";
@@ -7,7 +8,7 @@ import Loader from "./Loader";
 import ElectricBike from "./ElectricBike";
 
 // Add methods to a model
-function withVehicleMethods<T>(model: Model<T>): IVehicleModel<T> {
+function withVehicleMethods<T extends IVehicleBase>(model: Model<T>): IVehicleModel<T> {
   const schema = model.schema;
 
   if (!schema.statics.findVehiclesByShowroom) {

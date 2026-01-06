@@ -128,7 +128,7 @@ export async function GET(req: Request) {
         .populate("showroomId", "showroomName")
         .lean();
       console.log(`Fetched ${type} vehicles:`, vehicles);
-      return vehicles.map((vehicle) => ({
+      return vehicles.map((vehicle: any) => ({
         ...vehicle,
         type: vehicle.type || type,
         partner: vehicle.partners?.[0] || "No Partner Assigned",
@@ -206,8 +206,8 @@ export async function GET(req: Request) {
       (s) => s.paymentType === "Installment"
     ).length;
 
-    const monthlySales = transformedSales.reduce((acc, sale) => {
-      const date = new Date(sale.date || sale.saleDate);
+    const monthlySales = transformedSales.reduce((acc: Record<string, { month: string; count: number; revenue: number }>, sale) => {
+      const date = new Date(sale.date || new Date());
       if (isNaN(date.getTime())) return acc;
       const month = `${date.getFullYear()}-${String(
         date.getMonth() + 1
@@ -218,28 +218,28 @@ export async function GET(req: Request) {
       return acc;
     }, {});
 
-    const salesByType = transformedSales.reduce((acc, sale) => {
+    const salesByType = transformedSales.reduce((acc: Record<string, { name: string; value: number }>, sale) => {
       const type = sale.vehicleType || "Unknown";
       if (!acc[type]) acc[type] = { name: type, value: 0 };
       acc[type].value += sale.quantity;
       return acc;
     }, {});
 
-    const paymentDistribution = transformedSales.reduce((acc, sale) => {
+    const paymentDistribution = transformedSales.reduce((acc: Record<string, { name: string; value: number }>, sale) => {
       const pt = sale.paymentType || "Unknown";
       if (!acc[pt]) acc[pt] = { name: pt, value: 0 };
       acc[pt].value += sale.quantity;
       return acc;
     }, {});
 
-    const stockByType = vehicles.reduce((acc, vehicle) => {
+    const stockByType = vehicles.reduce((acc: Record<string, { name: string; value: number }>, vehicle) => {
       const type = vehicle.type || "Unknown";
       if (!acc[type]) acc[type] = { name: type, value: 0 };
       acc[type].value += 1;
       return acc;
     }, {});
 
-    const stockByPartner = vehicles.reduce((acc, vehicle) => {
+    const stockByPartner = vehicles.reduce((acc: Record<string, { name: string; count: number; value: number }>, vehicle) => {
       const partner = vehicle.partner || "No Partner Assigned";
       if (!acc[partner]) acc[partner] = { name: partner, count: 0, value: 0 };
       acc[partner].count += 1;
@@ -266,11 +266,11 @@ export async function GET(req: Request) {
     console.log("Dashboard API response:", response);
     return new Response(JSON.stringify(response), { status: 200 });
   } catch (error) {
-    console.error("Dashboard error:", error.message, error.stack);
+    console.error("Dashboard error:", error instanceof Error ? error.message : error, error instanceof Error ? error.stack : '');
     return new Response(
       JSON.stringify({
         message: "Internal server error",
-        details: error.message,
+        details: error instanceof Error ? error.message : 'Unknown error',
       }),
       { status: 500 }
     );

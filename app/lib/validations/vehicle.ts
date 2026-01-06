@@ -5,7 +5,7 @@ import User from "../models/User";
 export const validateVehicleInput = async (data: any) => {
   const errors: string[] = [];
 
-  if (!data.type || !VehicleModels[data.type]) {
+  if (!data.type || !VehicleModels[data.type as keyof typeof VehicleModels]) {
     errors.push("Invalid vehicle type");
   }
   if (!data.brand || data.brand.length < 2) {

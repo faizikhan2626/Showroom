@@ -5,7 +5,7 @@ export interface ISale extends Document {
   vehicleId: mongoose.Types.ObjectId;
   vehicleType: string;
   brand: string;
-  model: string;
+  vehicleModel: string;
   color: string;
   price: number;
   totalAmount: number;
@@ -35,7 +35,7 @@ const SaleSchema: Schema = new Schema<ISale>(
       required: true,
     },
     brand: { type: String, required: true },
-    model: { type: String, required: true },
+    vehicleModel: { type: String, required: true },
     color: { type: String, required: true },
     price: { type: Number, required: true },
     totalAmount: { type: Number, required: true },
