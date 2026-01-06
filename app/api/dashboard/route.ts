@@ -152,7 +152,7 @@ export async function GET(req: Request) {
       ...saleDateFilter,
     })
       .select(
-        "saleDate vehicleType totalAmount paymentType quantity showroomId vehicleId"
+        "saleDate vehicleType totalAmount paymentType quantity showroomId vehicleId dueAmount"
       )
       .populate("showroomId", "showroomName")
       .lean();
@@ -185,6 +185,7 @@ export async function GET(req: Request) {
       quantity: Number(s.quantity) || 1,
       showroom: s.showroomId?.showroomName || s.showroom || "Unknown",
       showroomId: s.showroomId?._id?.toString() || s.showroomId,
+      dueAmount: Number(s.dueAmount) || 0,
     }));
 
     // Process dashboard metrics
