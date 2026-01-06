@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../validations../../lib/authOptions";
+import { authOptions } from "../../../lib/authOptions";
 import { connectToDatabase } from "../../../lib/db";
 import User from "../../../lib/models/User";
 

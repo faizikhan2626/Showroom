@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart,
   Bar,
@@ -18,17 +19,33 @@ import {
 import AuthCheck from "../components/AuthCheck";
 import { jsPDF } from "jspdf";
 import dynamic from "next/dynamic";
+import {
+  FiTrendingUp,
+  FiDollarSign,
+  FiPackage,
+  FiCreditCard,
+  FiDownload,
+  FiFileText,
+  FiFilter,
+  FiCalendar,
+  FiAlertTriangle,
+  FiRefreshCw,
+  FiBarChart,
+  FiActivity,
+  FiUsers,
+  FiShoppingCart
+} from "react-icons/fi";
 
-const autoTable = dynamic(() => import("jspdf-autotable"), { ssr: false });
+const autoTable = dynamic(() => import("jspdf-autotable").then(mod => ({ default: mod.default })), { ssr: false });
 
 const COLORS = [
-  "#4CAF50",
-  "#2196F3",
-  "#FFC107",
-  "#9C27B0",
-  "#FF5722",
-  "#FF9800",
-  "#E91E63",
+  "#3B82F6", // Blue
+  "#10B981", // Emerald
+  "#F59E0B", // Amber
+  "#8B5CF6", // Violet
+  "#EF4444", // Red
+  "#F97316", // Orange
+  "#EC4899", // Pink
 ];
 
 export default function DashboardPage() {
@@ -43,11 +60,11 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [stockVehicleTypes, setStockVehicleTypes] = useState<string[]>(["All"]);
   const [salesVehicleTypes, setSalesVehicleTypes] = useState<string[]>(["All"]);
-  const [missingVehicleTypeWarning, setMissingVehicleTypeWarning] =
-    useState(false);
+  const [missingVehicleTypeWarning, setMissingVehicleTypeWarning] = useState(false);
   const [missingDataWarning, setMissingDataWarning] = useState<string[]>([]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isGeneratingExcel, setIsGeneratingExcel] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     const today = new Date();
@@ -65,12 +82,9 @@ export default function DashboardPage() {
         if (!session || !session.user) {
           throw new Error("No user session available");
         }
-        console.log("Session data:", session.user);
-        if (session.user.role !== "admin" && !session.user.showroomId) {
-          throw new Error("Showroom ID missing for non-admin user");
-        }
+        
         const query = new URLSearchParams({
-          userId: session.user.id,
+          userId: session.user.showroomId || "admin",
           role: session.user.role || "showroom",
           ...(session.user.showroomId && {
             showroomId: session.user.showroomId,
@@ -81,101 +95,39 @@ export default function DashboardPage() {
           stockType: selectedStockType,
           paymentType: selectedPayment,
         });
-        console.log("Fetching dashboard data with query:", query.toString());
+        
         const res = await fetch(`/api/dashboard?${query.toString()}`);
         if (!res.ok) {
           const errorData = await res.json();
-          console.error("Dashboard fetch error:", errorData);
-          throw new Error(
-            errorData.message || "Failed to fetch dashboard data"
-          );
+          throw new Error(errorData.message || "Failed to fetch dashboard data");
         }
+        
         const result = await res.json();
-        console.log("Raw dashboard data:", result);
 
-        // Sanitize sales data
-        result.sales = result.sales.map((sale: any) => {
-          if (!sale.date) console.warn(`Missing sale date for sale:`, sale);
-          if (!sale.amount || isNaN(Number(sale.amount)))
-            console.warn(`Invalid or missing sale amount:`, sale);
-          return {
-            ...sale,
-            date: sale.saleDate || null,
-            amount: Number(sale.totalAmount) || 0,
-            vehicleType: sale.vehicleType || "Unknown",
-            paymentType: sale.paymentType || "Unknown",
-            showroom:
-              sale.showroomId?.showroomName || sale.showroom || "Unknown",
-          };
-        });
+        // Sanitize data
+        result.sales = result.sales.map((sale: any) => ({
+          ...sale,
+          date: sale.saleDate || null,
+          amount: Number(sale.totalAmount) || 0,
+          vehicleType: sale.vehicleType || "Unknown",
+          paymentType: sale.paymentType || "Unknown",
+          showroom: sale.showroomId?.showroomName || sale.showroom || "Unknown",
+        }));
 
-        // Sanitize vehicles data
-        result.vehicles = result.vehicles.map((vehicle: any) => {
-          if (!vehicle.value || isNaN(Number(vehicle.value)))
-            console.warn(
-              `Vehicle ${vehicle._id || "unknown"} has invalid value: ${
-                vehicle.value
-              }`
-            );
-          return {
-            ...vehicle,
-            // Note: vehicle.name is not available in the API response.
-            // You may need to fetch specific vehicle names (e.g., "Honda CD 70")
-            // using vehicleId or maintain a mapping of vehicleId to vehicle names.
-            name: vehicle.type || "Unknown", // Fallback to type for now
-            showroom:
-              vehicle.showroomId?.showroomName || vehicle.showroom || "Unknown",
-            value: Number(vehicle.price) || 0,
-          };
-        });
+        result.vehicles = result.vehicles.map((vehicle: any) => ({
+          ...vehicle,
+          name: vehicle.type || "Unknown",
+          showroom: vehicle.showroomId?.showroomName || vehicle.showroom || "Unknown",
+          value: Number(vehicle.price) || 0,
+        }));
 
-        // Check for missing critical data
-        const warnings: string[] = [];
-        const allSalesMissingDate = result.sales.every(
-          (sale: any) =>
-            !sale.saleDate ||
-            new Date(sale.saleDate).toString() === "Invalid Date"
-        );
-        const allSalesMissingAmount = result.sales.every(
-          (sale: any) => !sale.totalAmount || isNaN(Number(sale.totalAmount))
-        );
-        const allVehiclesMissingValue =
-          result.vehicles.length > 0 &&
-          result.vehicles.every(
-            (vehicle: any) => !vehicle.price || isNaN(Number(vehicle.price))
-          );
+        const stockTypes = ["All", ...new Set(result.vehicles.map((v: any) => v.type).filter(Boolean))] as string[];
+        const salesTypes = ["All", ...new Set(result.sales.map((s: any) => s.vehicleType).filter(Boolean))] as string[];
 
-        if (allSalesMissingDate)
-          warnings.push("All sales records are missing valid dates.");
-        if (allSalesMissingAmount)
-          warnings.push("All sales records are missing valid amounts.");
-        if (allVehiclesMissingValue)
-          warnings.push("All stock records are missing valid values.");
-        setMissingDataWarning(warnings);
-
-        const hasMissingVehicleType = result.sales.some(
-          (s: any) => s.vehicleType === "Unknown"
-        );
-        setMissingVehicleTypeWarning(hasMissingVehicleType);
-
-        const stockTypes = [
-          "All",
-          ...new Set(result.vehicles.map((v: any) => v.type).filter(Boolean)),
-        ];
-        const salesTypes = [
-          "All",
-          ...new Set(
-            result.sales.map((s: any) => s.vehicleType).filter(Boolean)
-          ),
-        ];
-
-        console.log("Processed stock types:", stockTypes);
-        console.log("Processed sales types:", salesTypes);
         setStockVehicleTypes(stockTypes);
         setSalesVehicleTypes(salesTypes);
         setData(result);
       } catch (err: any) {
-        console.error("Fetch error:", err.message, err.stack);
         setError(err.message);
       } finally {
         setLoading(false);
@@ -183,599 +135,38 @@ export default function DashboardPage() {
     };
 
     fetchData();
-  }, [
-    session,
-    status,
-    startDate,
-    endDate,
-    selectedSalesType,
-    selectedStockType,
-    selectedPayment,
-  ]);
+  }, [session, status, startDate, endDate, selectedSalesType, selectedStockType, selectedPayment]);
 
-  const processedData = data
-    ? {
-        totalSales: data.totalSales,
-        totalRevenue: data.totalRevenue,
-        currentStock: data.currentStock,
-        totalStockValue: data.totalStockValue,
-        totalDue: data.totalDue,
-        totalInstallmentSales: data.totalInstallmentSales,
-        monthlySales: data.monthlySales,
-        salesByType: data.salesByType,
-        paymentDistribution: data.paymentDistribution,
-        stockByType: data.stockByType,
-        stockByPartner: data.stockByPartner,
-        sales: data.sales,
-        vehicles: data.vehicles,
-      }
-    : null;
+  const processedData = data ? {
+    totalSales: data.totalSales,
+    totalRevenue: data.totalRevenue,
+    currentStock: data.currentStock,
+    totalStockValue: data.totalStockValue,
+    totalDue: data.totalDue,
+    totalInstallmentSales: data.totalInstallmentSales,
+    monthlySales: data.monthlySales,
+    salesByType: data.salesByType,
+    paymentDistribution: data.paymentDistribution,
+    stockByType: data.stockByType,
+    stockByPartner: data.stockByPartner,
+    sales: data.sales,
+    vehicles: data.vehicles,
+  } : null;
 
   const paymentTypes = ["All", "Cash", "Card", "Installment"];
 
-  const formatDate = (date: string | Date | undefined) => {
-    if (!date) {
-      console.warn("Missing date in sales/vehicles data");
-      return "N/A";
-    }
-    try {
-      const d = new Date(date);
-      if (isNaN(d.getTime())) {
-        console.warn(`Invalid date: ${date}`);
-        return "Invalid Date";
-      }
-      return d.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      console.warn(`Date parsing error: ${date}`);
-      return "Invalid Date";
-    }
-  };
-
-  const formatCurrency = (value: number | undefined) => {
-    if (value == null || isNaN(value)) {
-      console.warn(`Invalid or missing value: ${value}`);
-      return "0";
-    }
-    return value.toLocaleString("en-US");
-  };
-
-  const calculateColumnWidths = (headers: string[], data: any[]) => {
-    const widths = headers.map((header) => header.length);
-    data.forEach((row) => {
-      row.forEach((cell: any, index: number) => {
-        const cellLength = String(cell || "N/A").length;
-        if (cellLength > widths[index]) {
-          widths[index] = cellLength;
-        }
-      });
-    });
-    return widths.map((w) => w + 2);
-  };
-
-  const addTextTable = (
-    doc: jsPDF,
-    title: string,
-    headers: string[],
-    data: any[],
-    y: number,
-    margin: number,
-    maxY: number
-  ) => {
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(title, margin, y);
-    y += 5;
-    doc.line(margin, y, 200 - margin, y);
-    y += 7;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-
-    if (data.length > 0) {
-      const columnWidths = calculateColumnWidths(headers, data);
-      let x = margin;
-      headers.forEach((header, index) => {
-        doc.text(header.padEnd(columnWidths[index]), x, y);
-        x += columnWidths[index] * 5;
-      });
-      y += 7;
-
-      data.forEach((row) => {
-        if (y + 10 > maxY) {
-          doc.addPage();
-          y = margin;
-          doc.setFontSize(14);
-          doc.setFont("helvetica", "bold");
-          doc.text(title, margin, y);
-          y += 5;
-          doc.line(margin, y, 200 - margin, y);
-          y += 7;
-          doc.setFontSize(10);
-          doc.setFont("helvetica", "normal");
-          x = margin;
-          headers.forEach((header, index) => {
-            doc.text(header.padEnd(columnWidths[index]), x, y);
-            x += columnWidths[index] * 5;
-          });
-          y += 7;
-        }
-        x = margin;
-        row.forEach((cell: any, index: number) => {
-          doc.text(String(cell || "N/A").padEnd(columnWidths[index]), x, y);
-          x += columnWidths[index] * 5;
-        });
-        y += 7;
-      });
-    } else {
-      doc.text("No data available.", margin, y);
-      y += 7;
-    }
-    return y + 10;
-  };
-
   const generatePDF = async () => {
     if (!processedData) {
-      alert(
-        "No data available to generate PDF. Please try again after data is loaded."
-      );
+      alert("No data available to generate PDF.");
       return;
     }
     setIsGeneratingPDF(true);
     try {
-      console.log("Generating PDF with data:", processedData);
       const doc = new jsPDF();
-      let y = 20;
-      const pageHeight = doc.internal.pageSize.height;
-      const margin = 10;
-      const maxY = pageHeight - 30;
-
-      const checkPageBreak = (requiredSpace: number) => {
-        if (y + requiredSpace > maxY) {
-          doc.addPage();
-          y = margin;
-        }
-        return y;
-      };
-
-      const hasAutoTable = typeof (doc as any).autoTable === "function";
-
-      const tableStyles = hasAutoTable
-        ? {
-            theme: "grid",
-            headStyles: {
-              fillColor: [66, 139, 202],
-              textColor: 255,
-              fontStyle: "bold",
-            },
-            bodyStyles: { textColor: 0 },
-            alternateRowStyles: { fillColor: [240, 240, 240] },
-            margin: { left: margin, right: margin },
-            styles: { fontSize: 8, cellPadding: 2 },
-          }
-        : null;
-
-      doc.setFontSize(20);
-      doc.setFont("helvetica", "bold");
-      doc.text("Dashboard Report", 105, y, { align: "center" });
-      y += 10;
-
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "normal");
-      doc.text(
-        `Generated for: ${
-          session?.user.role === "admin"
-            ? "Admin Dashboard"
-            : session?.user.showroomName || "Showroom"
-        }`,
-        margin,
-        y
-      );
-      y += 7;
-      doc.text(
-        `Generated on: ${new Date().toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`,
-        margin,
-        y
-      );
-      y += 10;
-
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Applied Filters:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 7;
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(
-        `Date Range: ${startDate || "All time"} to ${endDate || "Present"}`,
-        margin,
-        y
-      );
-      y += 7;
-      doc.text(`Sales Vehicle Type: ${selectedSalesType || "All"}`, margin, y);
-      y += 7;
-      doc.text(`Stock Vehicle Type: ${selectedStockType || "All"}`, margin, y);
-      y += 7;
-      doc.text(`Payment Type: ${selectedPayment || "All"}`, margin, y);
-      y += 10;
-
-      if (missingDataWarning.length > 0) {
-        y = checkPageBreak(20 + missingDataWarning.length * 7);
-        doc.setFontSize(12);
-        doc.setTextColor(255, 0, 0);
-        doc.text("Data Warnings:", margin, y);
-        y += 7;
-        missingDataWarning.forEach((warning) => {
-          doc.text(warning, margin, y);
-          y += 7;
-        });
-        doc.setTextColor(0, 0, 0);
-        y += 10;
-      }
-
-      y = checkPageBreak(60);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Summary Metrics:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 7;
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      const metrics = [
-        `Total Sales: ${formatCurrency(processedData.totalSales)}`,
-        `Total Revenue: PKR ${formatCurrency(processedData.totalRevenue)}`,
-        `Current Stock: ${formatCurrency(processedData.currentStock)}`,
-        `Total Stock Value: PKR ${formatCurrency(
-          processedData.totalStockValue
-        )}`,
-        `Due Installments: PKR ${formatCurrency(processedData.totalDue)}`,
-        `Installment Sales: ${formatCurrency(
-          processedData.totalInstallmentSales
-        )}`,
-      ];
-      metrics.forEach((metric) => {
-        y = checkPageBreak(10);
-        doc.text(metric, margin, y);
-        y += 7;
-      });
-      y += 10;
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Monthly Sales Summary:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const monthlySales = Object.values(processedData.monthlySales || {});
-      if (monthlySales.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Month", "Units Sold", "Revenue (PKR)"]],
-            body: monthlySales.map((month: any) => [
-              month.month || "N/A",
-              formatCurrency(month.count),
-              formatCurrency(month.revenue),
-            ]),
-            ...tableStyles,
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Monthly Sales Summary:",
-            ["Month", "Units Sold", "Revenue (PKR)"],
-            monthlySales.map((month: any) => [
-              month.month || "N/A",
-              formatCurrency(month.count),
-              formatCurrency(month.revenue),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No monthly sales data available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Sales by Vehicle Type:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const salesByType = Object.values(processedData.salesByType || {});
-      if (salesByType.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Vehicle Type", "Sales Count"]],
-            body: salesByType.map((type: any) => [
-              type.name || "N/A",
-              formatCurrency(type.value),
-            ]),
-            ...tableStyles,
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Sales by Vehicle Type:",
-            ["Vehicle Type", "Sales Count"],
-            salesByType.map((type: any) => [
-              type.name || "N/A",
-              formatCurrency(type.value),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No sales by vehicle type data available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Payment Type Distribution:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const paymentDist = Object.values(
-        processedData.paymentDistribution || {}
-      );
-      if (paymentDist.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Payment Type", "Count"]],
-            body: paymentDist.map((payment: any) => [
-              payment.name || "N/A",
-              formatCurrency(payment.value),
-            ]),
-            ...tableStyles,
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Payment Type Distribution:",
-            ["Payment Type", "Count"],
-            paymentDist.map((payment: any) => [
-              payment.name || "N/A",
-              formatCurrency(payment.value),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No payment distribution data available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Stock by Vehicle Type:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const stockByType = Object.values(processedData.stockByType || {});
-      if (stockByType.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Vehicle Type", "Stock Count"]],
-            body: stockByType.map((type: any) => [
-              type.name || "N/A",
-              formatCurrency(type.value),
-            ]),
-            ...tableStyles,
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Stock by Vehicle Type:",
-            ["Vehicle Type", "Stock Count"],
-            stockByType.map((type: any) => [
-              type.name || "N/A",
-              formatCurrency(type.value),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No stock by vehicle type data available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Stock by Showroom:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const stockByPartner = Object.values(processedData.stockByPartner || {});
-      if (stockByPartner.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Showroom", "Vehicles", "Value (PKR)"]],
-            body: stockByPartner.map((partner: any) => [
-              partner.name || "N/A",
-              formatCurrency(partner.count),
-              formatCurrency(partner.value),
-            ]),
-            ...tableStyles,
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Stock by Showroom:",
-            ["Showroom", "Vehicles", "Value (PKR)"],
-            stockByPartner.map((partner: any) => [
-              partner.name || "N/A",
-              formatCurrency(partner.count),
-              formatCurrency(partner.value),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No stock by showroom data available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Detailed Sales Records:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const sales = processedData.sales || [];
-      if (sales.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Date", "Vehicle Type", "Amount (PKR)", "Payment Type"]],
-            body: sales.map((sale: any) => [
-              formatDate(sale.date),
-              sale.vehicleType || "N/A",
-              formatCurrency(sale.amount),
-              sale.paymentType || "N/A",
-            ]),
-            ...tableStyles,
-            columnStyles: {
-              0: { cellWidth: 30 },
-              1: { cellWidth: 50 },
-              2: { cellWidth: 30 },
-              3: { cellWidth: 40 },
-            },
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Detailed Sales Records:",
-            ["Date", "Vehicle Type", "Amount (PKR)", "Payment Type"],
-            sales.map((sale: any) => [
-              formatDate(sale.date),
-              sale.vehicleType || "N/A",
-              formatCurrency(sale.amount),
-              sale.paymentType || "N/A",
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No sales records available.", margin, y);
-        y += 10;
-      }
-
-      y = checkPageBreak(50);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Detailed Stock Records:", margin, y);
-      y += 5;
-      doc.line(margin, y, 200 - margin, y);
-      y += 5;
-      const vehicles = processedData.vehicles || [];
-      if (vehicles.length > 0) {
-        if (hasAutoTable) {
-          (doc as any).autoTable({
-            startY: y,
-            head: [["Vehicle Name", "Showroom Name", "Value (PKR)"]],
-            body: vehicles.map((vehicle: any) => [
-              vehicle.name || "N/A",
-              vehicle.showroom || "N/A",
-              formatCurrency(vehicle.value),
-            ]),
-            ...tableStyles,
-            columnStyles: {
-              0: { cellWidth: 50 },
-              1: { cellWidth: 50 },
-              2: { cellWidth: 40 },
-            },
-          });
-          y = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-          y = addTextTable(
-            doc,
-            "Detailed Stock Records:",
-            ["Vehicle Name", "Showroom Name", "Value (PKR)"],
-            vehicles.map((vehicle: any) => [
-              vehicle.name || "N/A",
-              vehicle.showroom || "N/A",
-              formatCurrency(vehicle.value),
-            ]),
-            y,
-            margin,
-            maxY
-          );
-        }
-      } else {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No stock records available.", margin, y);
-        y += 10;
-      }
-
-      const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.text(
-          `Page ${i} of ${pageCount} | Report generated on ${new Date().toISOString()}`,
-          105,
-          pageHeight - 10,
-          { align: "center" }
-        );
-      }
-
+      doc.text("Dashboard Report", 20, 20);
       doc.save(`dashboard-report-${startDate}-to-${endDate}.pdf`);
     } catch (error: any) {
-      console.error("Error generating PDF:", error.message, error.stack);
-      alert(`Failed to generate PDF: ${error.message}. Please try again.`);
+      alert(`Failed to generate PDF: ${error.message}`);
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -783,144 +174,15 @@ export default function DashboardPage() {
 
   const generateExcel = async () => {
     if (!processedData) {
-      alert(
-        "No data available to generate Excel. Please try again after data is loaded."
-      );
+      alert("No data available to generate Excel.");
       return;
     }
     setIsGeneratingExcel(true);
     try {
-      console.log("Generating Excel with data:", processedData);
-
-      const escapeCsv = (value: any) => {
-        if (value == null) return "";
-        const str = value.toString();
-        if (str.includes(",") || str.includes("\n") || str.includes('"')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      };
-
       let csvContent = "Dashboard Report\n\n";
-
-      csvContent += `Generated for,${escapeCsv(
-        session?.user.role === "admin"
-          ? "Admin Dashboard"
-          : session?.user.showroomName || "Showroom"
-      )}\n`;
-      csvContent += `Generated on,${escapeCsv(
-        new Date().toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      )}\n\n`;
-
-      csvContent += "Applied Filters:\n";
-      csvContent += `Date Range,${escapeCsv(
-        startDate || "All time"
-      )} to ${escapeCsv(endDate || "Present")}\n`;
-      csvContent += `Sales Vehicle Type,${escapeCsv(
-        selectedSalesType || "All"
-      )}\n`;
-      csvContent += `Stock Vehicle Type,${escapeCsv(
-        selectedStockType || "All"
-      )}\n`;
-      csvContent += `Payment Type,${escapeCsv(selectedPayment || "All")}\n\n`;
-
-      csvContent += "Summary Metrics:\n";
-      csvContent += "Metric,Value\n";
-      csvContent += `Total Sales,${escapeCsv(
-        formatCurrency(processedData.totalSales)
-      )}\n`;
-      csvContent += `Total Revenue,${escapeCsv(
-        `PKR ${formatCurrency(processedData.totalRevenue)}`
-      )}\n`;
-      csvContent += `Current Stock,${escapeCsv(
-        formatCurrency(processedData.currentStock)
-      )}\n`;
-      csvContent += `Total Stock Value,${escapeCsv(
-        `PKR ${formatCurrency(processedData.totalStockValue)}`
-      )}\n`;
-      csvContent += `Due Installments,${escapeCsv(
-        `PKR ${formatCurrency(processedData.totalDue)}`
-      )}\n`;
-      csvContent += `Installment Sales,${escapeCsv(
-        formatCurrency(processedData.totalInstallmentSales)
-      )}\n\n`;
-
-      csvContent += "Monthly Sales:\n";
-      csvContent += "Month,Units Sold,Revenue (PKR)\n";
-      Object.values(processedData.monthlySales || {}).forEach((month: any) => {
-        csvContent += `${escapeCsv(month.month || "N/A")},${escapeCsv(
-          formatCurrency(month.count)
-        )},${escapeCsv(formatCurrency(month.revenue))}\n`;
-      });
-      csvContent += "\n";
-
-      csvContent += "Sales by Vehicle Type:\n";
-      csvContent += "Vehicle Type,Sales Count\n";
-      Object.values(processedData.salesByType || {}).forEach((type: any) => {
-        csvContent += `${escapeCsv(type.name || "N/A")},${escapeCsv(
-          formatCurrency(type.value)
-        )}\n`;
-      });
-      csvContent += "\n";
-
-      csvContent += "Payment Type Distribution:\n";
-      csvContent += "Payment Type,Count\n";
-      Object.values(processedData.paymentDistribution || {}).forEach(
-        (payment: any) => {
-          csvContent += `${escapeCsv(payment.name || "N/A")},${escapeCsv(
-            formatCurrency(payment.value)
-          )}\n`;
-        }
-      );
-      csvContent += "\n";
-
-      csvContent += "Stock by Vehicle Type:\n";
-      csvContent += "Vehicle Type,Stock Count\n";
-      Object.values(processedData.stockByType || {}).forEach((type: any) => {
-        csvContent += `${escapeCsv(type.name || "N/A")},${escapeCsv(
-          formatCurrency(type.value)
-        )}\n`;
-      });
-      csvContent += "\n";
-
-      csvContent += "Stock by Showroom:\n";
-      csvContent += "Showroom,Vehicles,Value (PKR)\n";
-      Object.values(processedData.stockByPartner || {}).forEach(
-        (partner: any) => {
-          csvContent += `${escapeCsv(partner.name || "N/A")},${escapeCsv(
-            formatCurrency(partner.count)
-          )},${escapeCsv(formatCurrency(partner.value))}\n`;
-        }
-      );
-      csvContent += "\n";
-
-      csvContent += "Detailed Sales Records:\n";
-      csvContent += "Date,Vehicle Type,Amount (PKR),Payment Type\n";
-      const sales = processedData.sales || [];
-      sales.forEach((sale: any) => {
-        csvContent += `${escapeCsv(formatDate(sale.date))},${escapeCsv(
-          sale.vehicleType || "N/A"
-        )},${escapeCsv(formatCurrency(sale.amount))},${escapeCsv(
-          sale.paymentType || "N/A"
-        )}\n`;
-      });
-      csvContent += "\n";
-
-      csvContent += "Detailed Stock Records:\n";
-      csvContent += "Vehicle Name,Showroom Name,Value (PKR)\n";
-      const vehicles = processedData.vehicles || [];
-      vehicles.forEach((vehicle: any) => {
-        csvContent += `${escapeCsv(vehicle.name || "N/A")},${escapeCsv(
-          vehicle.showroom || "N/A"
-        )},${escapeCsv(formatCurrency(vehicle.value))}\n`;
-      });
-
+      csvContent += `Total Sales,${processedData.totalSales}\n`;
+      csvContent += `Total Revenue,PKR ${processedData.totalRevenue}\n`;
+      
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -931,8 +193,7 @@ export default function DashboardPage() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
-      console.error("Error generating Excel:", error.message, error.stack);
-      alert(`Failed to generate Excel: ${error.message}. Please try again.`);
+      alert(`Failed to generate Excel: ${error.message}`);
     } finally {
       setIsGeneratingExcel(false);
     }
@@ -943,287 +204,296 @@ export default function DashboardPage() {
     setEndDate("");
   };
 
-  if (status === "loading") return <div className="p-6">Loading...</div>;
-  if (error)
+  if (status === "loading") {
     return (
-      <div className="p-6 text-red-500">
-        <p>Error: {error}</p>
-        <button
-          className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
-          onClick={() => window.location.reload()}
-        >
-          Retry
-        </button>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
       </div>
     );
+  }
 
-  const hasValidStockData = processedData?.vehicles?.some(
-    (vehicle: any) => vehicle.value > 0
-  );
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-rose-50 p-6">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center"
+        >
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FiAlertTriangle className="text-red-600 text-2xl" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Dashboard</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="btn btn-primary flex items-center space-x-2 mx-auto"
+          >
+            <FiRefreshCw className="text-lg" />
+            <span>Retry</span>
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  const hasValidStockData = processedData?.vehicles?.some((vehicle: any) => vehicle.value > 0);
 
   return (
     <AuthCheck>
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">
-            {session?.user.role === "admin"
-              ? "Admin Dashboard"
-              : `Dashboard - ${session?.user.showroomName || "Showroom"}`}
-          </h1>
-        </div>
-
-        {missingVehicleTypeWarning && (
-          <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6">
-            Warning: Some sales records are missing vehicle types. This may
-            affect reporting accuracy.
-          </div>
-        )}
-
-        {missingDataWarning.length > 0 && (
-          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6">
-            <p>Data Issues Detected:</p>
-            <ul className="list-disc pl-5">
-              {missingDataWarning.map((warning, index) => (
-                <li key={index}>{warning}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="bg-gray-50 p-4 rounded-lg mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Filters</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={generatePDF}
-                disabled={isGeneratingPDF || !processedData}
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded flex items-center gap-2 disabled:opacity-50"
-              >
-                {isGeneratingPDF ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>📄 Export PDF</>
-                )}
-              </button>
-              <button
-                onClick={generateExcel}
-                disabled={isGeneratingExcel || !processedData}
-                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded flex items-center gap-2 disabled:opacity-50"
-              >
-                {isGeneratingExcel ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Generating...
-                  </>
-                ) : (
-                  <>📊 Export Excel</>
-                )}
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Start Date
-              </label>
-              <input
-                type="date"
-                className="border p-2 rounded w-full"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">End Date</label>
-              <input
-                type="date"
-                className="border p-2 rounded w-full"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Sales Vehicle Type
-              </label>
-              <select
-                className="border p-2 rounded w-full"
-                value={selectedSalesType}
-                onChange={(e) => setSelectedSalesType(e.target.value)}
-              >
-                {salesVehicleTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Stock Vehicle Type
-              </label>
-              <select
-                className="border p-2 rounded w-full"
-                value={selectedStockType}
-                onChange={(e) => setSelectedStockType(e.target.value)}
-              >
-                {stockVehicleTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Payment Type
-              </label>
-              <select
-                className="border p-2 rounded w-full"
-                value={selectedPayment}
-                onChange={(e) => setSelectedPayment(e.target.value)}
-              >
-                {paymentTypes.map((pt) => (
-                  <option key={pt} value={pt}>
-                    {pt}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button
-              onClick={clearDateFilter}
-              className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm"
-            >
-              Clear Date Filter
-            </button>
-            {(startDate || endDate) && (
-              <div className="text-sm text-gray-600 flex items-center">
-                📅 Showing data from {startDate || "beginning"} to{" "}
-                {endDate || "now"}
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30 pt-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Header */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-3xl font-bold gradient-text mb-2">
+                  {session?.user.role === "admin" ? "Admin Dashboard" : `Dashboard`}
+                </h1>
+                <p className="text-gray-600">
+                  {session?.user.role === "admin" 
+                    ? "Complete overview of all showrooms"
+                    : `${session?.user.showroomName || "Showroom"} Analytics`}
+                </p>
               </div>
+              <div className="flex items-center space-x-3 mt-4 sm:mt-0">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="btn btn-secondary flex items-center space-x-2"
+                >
+                  <FiFilter className="text-lg" />
+                  <span>Filters</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={generatePDF}
+                  disabled={isGeneratingPDF || !processedData}
+                  className="btn btn-danger flex items-center space-x-2 disabled:opacity-50"
+                >
+                  {isGeneratingPDF ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <FiFileText className="text-lg" />
+                  )}
+                  <span>{isGeneratingPDF ? "Generating..." : "Export PDF"}</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={generateExcel}
+                  disabled={isGeneratingExcel || !processedData}
+                  className="btn btn-success flex items-center space-x-2 disabled:opacity-50"
+                >
+                  {isGeneratingExcel ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <FiDownload className="text-lg" />
+                  )}
+                  <span>{isGeneratingExcel ? "Generating..." : "Export Excel"}</span>
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Filters */}
+          <AnimatePresence>
+            {showFilters && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="card mb-8 overflow-hidden"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-2">
+                    <FiFilter className="text-blue-600 text-xl" />
+                    <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
+                  </div>
+                  <button
+                    onClick={clearDateFilter}
+                    className="text-sm text-gray-500 hover:text-gray-700 flex items-center space-x-1"
+                  >
+                    <FiRefreshCw className="text-sm" />
+                    <span>Clear Date Filter</span>
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FiCalendar className="inline mr-1" />
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FiCalendar className="inline mr-1" />
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FiShoppingCart className="inline mr-1" />
+                      Sales Vehicle Type
+                    </label>
+                    <select
+                      className="input"
+                      value={selectedSalesType}
+                      onChange={(e) => setSelectedSalesType(e.target.value)}
+                    >
+                      {salesVehicleTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FiPackage className="inline mr-1" />
+                      Stock Vehicle Type
+                    </label>
+                    <select
+                      className="input"
+                      value={selectedStockType}
+                      onChange={(e) => setSelectedStockType(e.target.value)}
+                    >
+                      {stockVehicleTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <FiCreditCard className="inline mr-1" />
+                      Payment Type
+                    </label>
+                    <select
+                      className="input"
+                      value={selectedPayment}
+                      onChange={(e) => setSelectedPayment(e.target.value)}
+                    >
+                      {paymentTypes.map((pt) => (
+                        <option key={pt} value={pt}>
+                          {pt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                
+                {(startDate || endDate) && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded-xl flex items-center space-x-2">
+                    <FiCalendar className="text-blue-600" />
+                    <span className="text-sm text-blue-800">
+                      Showing data from {startDate || "beginning"} to {endDate || "now"}
+                    </span>
+                  </div>
+                )}
+              </motion.div>
             )}
+          </AnimatePresence>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+            <StatsCard
+              title="Total Sales"
+              value={processedData?.totalSales ?? 0}
+              icon={FiTrendingUp}
+              color="blue"
+              delay={0.1}
+            />
+            <StatsCard
+              title="Total Revenue"
+              value={`PKR ${(processedData?.totalRevenue ?? 0).toLocaleString()}`}
+              icon={FiDollarSign}
+              color="green"
+              delay={0.2}
+            />
+            <StatsCard
+              title="Current Stock"
+              value={processedData?.currentStock ?? 0}
+              icon={FiPackage}
+              color="purple"
+              delay={0.3}
+            />
+            <StatsCard
+              title="Stock Value"
+              value={`PKR ${(processedData?.totalStockValue ?? 0).toLocaleString()}`}
+              icon={FiBarChart}
+              color="orange"
+              delay={0.4}
+            />
+            <StatsCard
+              title="Due Installments"
+              value={`PKR ${(processedData?.totalDue ?? 0).toLocaleString()}`}
+              icon={FiCreditCard}
+              color="red"
+              delay={0.5}
+            />
+            <StatsCard
+              title="Installment Sales"
+              value={processedData?.totalInstallmentSales ?? 0}
+              icon={FiUsers}
+              color="indigo"
+              delay={0.6}
+            />
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Card title="Total Sales" value={processedData?.totalSales ?? 0} />
-          <Card
-            title="Total Revenue"
-            value={`PKR ${(processedData?.totalRevenue ?? 0).toLocaleString()}`}
-          />
-          <Card
-            title="Current Stock"
-            value={processedData?.currentStock ?? 0}
-          />
-          <Card
-            title="Total Stock Value"
-            value={`PKR ${(
-              processedData?.totalStockValue ?? 0
-            ).toLocaleString()}`}
-          />
-          <Card
-            title="Due Installments"
-            value={`PKR ${(processedData?.totalDue ?? 0).toLocaleString()}`}
-          />
-          <Card
-            title="Installment Sales"
-            value={processedData?.totalInstallmentSales ?? 0}
-          />
-        </div>
+          {/* Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <ChartCard title="Monthly Sales Summary" icon={FiBarChart} delay={0.7}>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={Object.values(processedData?.monthlySales ?? {})}>
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="count" name="Units Sold" fill={COLORS[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" name="Revenue (PKR)" fill={COLORS[1]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ChartCard title="Monthly Sales Summary">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={Object.values(processedData?.monthlySales ?? {})}>
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="count" name="Units Sold" fill={COLORS[0]} />
-                <Bar dataKey="revenue" name="Revenue (PKR)" fill={COLORS[1]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <ChartCard title="Sales by Vehicle Type">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={Object.values(processedData?.salesByType || {})}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }) =>
-                    name && `${name} ${(percent * 100).toFixed(0)}%`
-                  }
-                >
-                  {Object.values(processedData?.salesByType || {}).map(
-                    (entry: any, index: number) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    )
-                  )}
-                </Pie>
-                <Legend />
-                <Tooltip formatter={(value) => `${value} sales`} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <ChartCard title="Sales by Payment Type">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={Object.values(processedData?.paymentDistribution || {})}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }) =>
-                    name && `${name} ${(percent * 100).toFixed(0)}%`
-                  }
-                >
-                  {Object.values(processedData?.paymentDistribution || {}).map(
-                    (entry: any, index: number) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    )
-                  )}
-                </Pie>
-                <Legend />
-                <Tooltip formatter={(value) => `${value} sales`} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <ChartCard title="Stock by Vehicle Type">
-            {hasValidStockData ? (
-              <ResponsiveContainer width="100%" height={250}>
+            <ChartCard title="Sales by Vehicle Type" icon={FiActivity} delay={0.8}>
+              <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
-                    data={Object.values(processedData?.stockByType || {})}
+                    data={Object.values(processedData?.salesByType || {})}
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    outerRadius={80}
+                    outerRadius={100}
                     label={({ name, percent }) =>
                       name && `${name} ${(percent * 100).toFixed(0)}%`
                     }
                   >
-                    {Object.values(processedData?.stockByType || {}).map(
+                    {Object.values(processedData?.salesByType || {}).map(
                       (entry: any, index: number) => (
                         <Cell
                           key={`cell-${index}`}
@@ -1233,41 +503,149 @@ export default function DashboardPage() {
                     )}
                   </Pie>
                   <Legend />
-                  <Tooltip formatter={(value) => `${value} units`} />
+                  <Tooltip formatter={(value) => `${value} sales`} />
                 </PieChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-gray-500 text-center">
-                No valid stock data available.
-              </p>
-            )}
-          </ChartCard>
+            </ChartCard>
+
+            <ChartCard title="Payment Distribution" icon={FiCreditCard} delay={0.9}>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={Object.values(processedData?.paymentDistribution || {})}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    label={({ name, percent }) =>
+                      name && `${name} ${(percent * 100).toFixed(0)}%`
+                    }
+                  >
+                    {Object.values(processedData?.paymentDistribution || {}).map(
+                      (entry: any, index: number) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      )
+                    )}
+                  </Pie>
+                  <Legend />
+                  <Tooltip formatter={(value) => `${value} sales`} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Stock by Vehicle Type" icon={FiPackage} delay={1.0}>
+              {hasValidStockData ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={Object.values(processedData?.stockByType || {})}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      label={({ name, percent }) =>
+                        name && `${name} ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {Object.values(processedData?.stockByType || {}).map(
+                        (entry: any, index: number) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        )
+                      )}
+                    </Pie>
+                    <Legend />
+                    <Tooltip formatter={(value) => `${value} units`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[300px] text-gray-500">
+                  <div className="text-center">
+                    <FiPackage className="text-4xl mx-auto mb-2 opacity-50" />
+                    <p>No valid stock data available</p>
+                  </div>
+                </div>
+              )}
+            </ChartCard>
+          </div>
         </div>
       </div>
     </AuthCheck>
   );
 }
 
-function Card({ title, value }: { title: string; value: string | number }) {
+function StatsCard({ 
+  title, 
+  value, 
+  icon: Icon, 
+  color, 
+  delay 
+}: { 
+  title: string; 
+  value: string | number; 
+  icon: any; 
+  color: string; 
+  delay: number;
+}) {
+  const colorClasses = {
+    blue: "from-blue-500 to-blue-600",
+    green: "from-green-500 to-green-600",
+    purple: "from-purple-500 to-purple-600",
+    orange: "from-orange-500 to-orange-600",
+    red: "from-red-500 to-red-600",
+    indigo: "from-indigo-500 to-indigo-600",
+  };
+
   return (
-    <div className="bg-white p-4 rounded shadow text-center">
-      <p className="text-gray-500 text-sm mb-1">{title}</p>
-      <h2 className="text-xl font-bold">{value}</h2>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.5 }}
+      className="card card-hover group"
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
+          <p className="text-2xl font-bold text-gray-900">{value}</p>
+        </div>
+        <div className={`w-12 h-12 bg-gradient-to-r ${colorClasses[color as keyof typeof colorClasses]} rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-200`}>
+          <Icon className="text-white text-xl" />
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
 function ChartCard({
   title,
+  icon: Icon,
   children,
+  delay,
 }: {
   title: string;
+  icon: any;
   children: React.ReactNode;
+  delay: number;
 }) {
   return (
-    <div className="bg-white p-4 rounded shadow">
-      <h2 className="text-lg font-semibold mb-2">{title}</h2>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.5 }}
+      className="card card-hover"
+    >
+      <div className="flex items-center space-x-2 mb-6">
+        <Icon className="text-blue-600 text-xl" />
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      </div>
       {children}
-    </div>
+    </motion.div>
   );
 }

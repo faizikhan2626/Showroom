@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "../../../lib/db";
 import { VehicleModels } from "../../../lib/models/VehicleModels";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { authOptions } from "../../../lib/authOptions";
 
 export async function GET(req: NextRequest) {
   await connectToDatabase();
