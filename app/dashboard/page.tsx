@@ -84,7 +84,7 @@ export default function DashboardPage() {
         }
         
         const query = new URLSearchParams({
-          userId: session.user.showroomId || "admin",
+          userId: session.user.role === "admin" ? "admin" : session.user.showroomId,
           role: session.user.role || "showroom",
           ...(session.user.showroomId && {
             showroomId: session.user.showroomId,
