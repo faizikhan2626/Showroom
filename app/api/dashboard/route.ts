@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const user = session.user as { id: string; role: string; showroomId: string; showroomName: string };
+  const user = session.user as { username: string; role: "admin" | "showroom"; showroomId: string; showroomName: string };
 
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("userId");
@@ -30,10 +30,10 @@ export async function GET(req: Request) {
   const stockType = searchParams.get("stockType");
   const paymentType = searchParams.get("paymentType");
 
-  if (userId !== user.id) {
+  if (userId !== user.username) {
     console.error("Forbidden: userId mismatch", {
       userId,
-      sessionUserId: user.id,
+      sessionUserId: user.username,
     });
     return new Response(JSON.stringify({ message: "Forbidden" }), {
       status: 403,
