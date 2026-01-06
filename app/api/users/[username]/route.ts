@@ -5,12 +5,12 @@ import User from "../../../lib/models/User";
 // Note: Use `NextRequest` and access params from the function's second argument
 export async function GET(
   req: NextRequest,
-  context: { params: { username: string } }
+  { params }: { params: Promise<{ username: string }> }
 ) {
   try {
     await connectToDatabase();
 
-    const { username } = context.params;
+    const { username } = await params;
     const user = await User.findOne({ username }).lean();
 
     if (!user) {
