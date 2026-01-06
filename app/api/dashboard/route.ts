@@ -18,6 +18,8 @@ export async function GET(req: Request) {
     });
   }
 
+  const user = session.user as { id: string; role: string; showroomId: string; showroomName: string };
+
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("userId");
   const role = searchParams.get("role");
@@ -28,10 +30,10 @@ export async function GET(req: Request) {
   const stockType = searchParams.get("stockType");
   const paymentType = searchParams.get("paymentType");
 
-  if (userId !== session.user.id) {
+  if (userId !== user.id) {
     console.error("Forbidden: userId mismatch", {
       userId,
-      sessionUserId: session.user.id,
+      sessionUserId: user.id,
     });
     return new Response(JSON.stringify({ message: "Forbidden" }), {
       status: 403,
@@ -45,14 +47,14 @@ export async function GET(req: Request) {
     let showroomFilter = {};
     if (role !== "admin") {
       if (
-        !session.user.showroomId ||
-        !mongoose.Types.ObjectId.isValid(session.user.showroomId)
+        !user.showroomId ||
+        !mongoose.Types.ObjectId.isValid(user.showroomId)
       ) {
         console.error("Invalid or missing showroomId for non-admin user", {
           userId,
           role,
           showroomId,
-          sessionShowroomId: session.user.showroomId,
+          sessionShowroomId: user.showroomId,
         });
         return new Response(
           JSON.stringify({
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
         );
       }
       showroomFilter = {
-        showroomId: new mongoose.Types.ObjectId(session.user.showroomId),
+        showroomId: new mongoose.Types.ObjectId(user.showroomId),
       };
     }
 
