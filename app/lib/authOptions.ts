@@ -72,7 +72,7 @@ export const authOptions: AuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.role = user.role;
+        token.role = user.role as "admin" | "showroom";
         token.showroomName = user.showroomName;
         token.showroomId = user.showroomId;
       }
@@ -80,10 +80,10 @@ export const authOptions: AuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-        session.user.showroomName = token.showroomName;
-        session.user.showroomId = token.showroomId;
+        session.user.id = token.id as string;
+        session.user.role = token.role as "admin" | "showroom";
+        session.user.showroomName = token.showroomName as string;
+        session.user.showroomId = token.showroomId as string;
       }
       return session;
     },

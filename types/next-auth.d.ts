@@ -1,12 +1,14 @@
-import NextAuth from "next-auth";
+import "next-auth";
+import "next-auth/jwt";
 
 declare module "next-auth" {
   interface Session {
     user: {
       id: string;
-      name: string;
-      email: string;
-      role: string;
+      username: string;
+      name?: string;
+      email?: string;
+      role: "admin" | "showroom";
       showroomName: string;
       showroomId: string;
     };
@@ -16,7 +18,7 @@ declare module "next-auth" {
     id: string;
     name: string;
     email: string;
-    role: string;
+    role: "admin" | "showroom";
     showroomName: string;
     showroomId: string;
   }
@@ -27,7 +29,7 @@ declare module "next-auth/jwt" {
     id: string;
     name: string;
     email: string;
-    role: string;
+    role: "admin" | "showroom";
     showroomName: string;
     showroomId: string;
   }
